@@ -4,6 +4,41 @@ import { NextResponse } from "next/server"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
+type TimedText = { text: string; startSecond: number; endSecond: number }
+
+function chunkTimedText(segment: TimedText): TimedText[] {
+  const words = segment.text.trim().split(/\s+/).filter(Boolean)
+  if (!words.length) return []
+
+  const duration = Math.max(0.25, segment.endSecond - segment.startSecond)
+  const chunks: string[][] = []
+  let current: string[] = []
+
+  for (const word of words) {
+    const candidate = [...current, word].join(" ")
+    const endsPhrase = /[.!?;:]$/.test(word)
+    if (current.length && (candidate.length > 46 || current.length >= 8)) {
+      chunks.push(current)
+      current = [word]
+    } else {
+      current.push(word)
+    }
+    if (endsPhrase && current.length >= 3) {
+      chunks.push(current)
+      current = []
+    }
+  }
+  if (current.length) chunks.push(current)
+
+  let consumedWords = 0
+  return chunks.map((chunk) => {
+    const startSecond = segment.startSecond + duration * (consumedWords / words.length)
+    consumedWords += chunk.length
+    const endSecond = segment.startSecond + duration * (consumedWords / words.length)
+    return { text: chunk.join(" "), startSecond, endSecond }
+  })
+}
+
 export async function POST(request: Request) {
   try {
     const form = await request.formData()
@@ -36,21 +71,22 @@ export async function POST(request: Request) {
       throw lastError ?? new Error("No speech was found in the recording audio")
     }
 
-    const segments = result.segments.length
-      ? result.segments.map((segment, index) => ({
-          id: `caption-${index}-${Math.round(segment.startSecond * 1000)}`,
-          start: segment.startSecond,
-          end: segment.endSecond,
-          text: segment.text.trim(),
-        }))
+    const timedSource: TimedText[] = result.segments.length
+      ? result.segments
       : [{
-          id: "caption-0",
-          start: 0,
-          end: result.durationInSeconds ?? 4,
           text: result.text.trim(),
+          startSecond: 0,
+          endSecond: result.durationInSeconds ?? Math.max(4, result.text.trim().split(/\s+/).length / 2.5),
         }]
 
-    return NextResponse.json({ captions: segments.filter((segment) => segment.text) })
+    const captions = timedSource.flatMap(chunkTimedText).map((segment, index) => ({
+      id: `caption-${index}-${Math.round(segment.startSecond * 1000)}`,
+      start: segment.startSecond,
+      end: segment.endSecond,
+      text: segment.text,
+    }))
+
+    return NextResponse.json({ captions })
   } catch (error) {
     console.error("[v0] caption transcription failed:", error)
     const message = error instanceof Error ? error.message : ""
