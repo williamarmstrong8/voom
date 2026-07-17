@@ -9,6 +9,8 @@ export type ExportQuality = "720p" | "1080p"
 interface CompositeOptions {
   screenUrl: string
   cameraUrl: string | null
+  /** Dedicated microphone track, mixed in independently of the camera layer. */
+  audioUrl?: string | null
   layout: CameraLayout
   trim: TrimRange
   quality: ExportQuality
@@ -91,6 +93,7 @@ function pickMimeType(): string {
 export async function compositeToWebm({
   screenUrl,
   cameraUrl,
+  audioUrl,
   layout,
   trim,
   quality,
@@ -102,6 +105,9 @@ export async function compositeToWebm({
 }: CompositeOptions): Promise<Blob> {
   const screen = await loadVideo(screenUrl)
   const camera = cameraUrl ? await loadVideo(cameraUrl) : null
+  // Microphone narration lives on its own track so it plays back even when the
+  // camera overlay is hidden or the recording had no camera at all.
+  const mic = audioUrl ? await loadVideo(audioUrl) : null
 
   // Preserve the source aspect ratio while targeting the selected maximum
   // height. Never upscale beyond the source recording's native dimensions.
@@ -133,7 +139,7 @@ export async function compositeToWebm({
     }
   }
   connectAudio(screen)
-  if (camera) connectAudio(camera)
+  if (mic) connectAudio(mic)
 
   const canvasStream = canvas.captureStream(30)
   const mixed = new MediaStream([
@@ -161,8 +167,9 @@ export async function compositeToWebm({
 
   await seek(screen, start)
   if (camera) await seek(camera, Math.min(start, camera.duration || start))
+  if (mic) await seek(mic, Math.min(start, mic.duration || start))
 
-  await Promise.all([screen.play(), camera?.play()].filter(Boolean) as Promise<void>[])
+  await Promise.all([screen.play(), camera?.play(), mic?.play()].filter(Boolean) as Promise<void>[])
 
   const done = new Promise<Blob>((resolve) => {
     recorder.onstop = () => {
@@ -263,10 +270,12 @@ export async function compositeToWebm({
           segmentIndex += 1
           screen.pause()
           camera?.pause()
+          mic?.pause()
           void Promise.all([
             seek(screen, next.sourceStart),
             camera ? seek(camera, Math.min(next.sourceStart, camera.duration || next.sourceStart)) : Promise.resolve(),
-          ]).then(() => Promise.all([screen.play(), camera?.play()].filter(Boolean) as Promise<void>[])).finally(() => {
+            mic ? seek(mic, Math.min(next.sourceStart, mic.duration || next.sourceStart)) : Promise.resolve(),
+          ]).then(() => Promise.all([screen.play(), camera?.play(), mic?.play()].filter(Boolean) as Promise<void>[])).finally(() => {
             switchingSegment = false
           })
         }
@@ -274,6 +283,7 @@ export async function compositeToWebm({
         cancelAnimationFrame(raf)
         screen.pause()
         camera?.pause()
+        mic?.pause()
         if (recorder.state !== "inactive") recorder.stop()
         void audioCtx.close()
         return

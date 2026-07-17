@@ -362,6 +362,7 @@ export function EditorScreen({
     const webm = await compositeToWebm({
       screenUrl: recording.screen.url,
       cameraUrl: cameraVisible && recording.camera ? recording.camera.url : null,
+      audioUrl: recording.audio?.url ?? null,
       layout,
       trim,
       quality: exportQuality,
