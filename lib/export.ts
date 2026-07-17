@@ -1,6 +1,7 @@
 // Canvas compositing pipeline: burns the camera overlay onto the screen video
 // at the chosen position, mixes audio, and captures the trimmed range to WebM.
 
+import type { BrandKit, CaptionCue, EditorSegment, TitleCard } from "@/lib/editor-types"
 import type { CameraLayout, TrimRange } from "@/lib/studio-types"
 
 export type ExportQuality = "720p" | "1080p"
@@ -11,6 +12,10 @@ interface CompositeOptions {
   layout: CameraLayout
   trim: TrimRange
   quality: ExportQuality
+  segments?: EditorSegment[]
+  captions?: CaptionCue[]
+  titleCards?: TitleCard[]
+  brandKit?: BrandKit
   onProgress?: (fraction: number) => void
 }
 
@@ -89,6 +94,10 @@ export async function compositeToWebm({
   layout,
   trim,
   quality,
+  segments = [],
+  captions = [],
+  titleCards = [],
+  brandKit,
   onProgress,
 }: CompositeOptions): Promise<Blob> {
   const screen = await loadVideo(screenUrl)
@@ -141,9 +150,14 @@ export async function compositeToWebm({
     if (e.data.size > 0) chunks.push(e.data)
   }
 
-  const start = Math.max(0, trim.start)
-  const end = Math.min(trim.end, screen.duration || trim.end)
-  const span = Math.max(0.1, end - start)
+  const activeSegments = segments.length
+    ? segments
+    : [{ id: "trim", sourceStart: Math.max(0, trim.start), sourceEnd: Math.min(trim.end, screen.duration || trim.end) }]
+  let segmentIndex = 0
+  let completedDuration = 0
+  let switchingSegment = false
+  const span = Math.max(0.1, activeSegments.reduce((sum, segment) => sum + segment.sourceEnd - segment.sourceStart, 0))
+  const start = activeSegments[0].sourceStart
 
   await seek(screen, start)
   if (camera) await seek(camera, Math.min(start, camera.duration || start))
@@ -203,15 +217,61 @@ export async function compositeToWebm({
     }
 
     const t = screen.currentTime
-    onProgress?.(Math.max(0, Math.min(1, (t - start) / span)))
+    const titleCard = titleCards.find((card) => t >= card.start && t <= card.end)
+    if (titleCard) {
+      ctx.fillStyle = "rgba(0,0,0,0.72)"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.fillStyle = brandKit?.primaryColor ?? "#ffffff"
+      ctx.textAlign = "center"
+      ctx.font = `600 ${Math.round(canvas.width * 0.045)}px sans-serif`
+      ctx.fillText(titleCard.title, canvas.width / 2, canvas.height / 2)
+      ctx.fillStyle = "rgba(255,255,255,0.7)"
+      ctx.font = `400 ${Math.round(canvas.width * 0.018)}px sans-serif`
+      ctx.fillText(titleCard.subtitle, canvas.width / 2, canvas.height / 2 + canvas.height * 0.07)
+    }
+    const caption = captions.find((cue) => t >= cue.start && t <= cue.end)
+    if (caption) {
+      ctx.font = `600 ${Math.round(canvas.width * 0.025)}px sans-serif`
+      ctx.textAlign = "center"
+      const metrics = ctx.measureText(caption.text)
+      const padding = canvas.width * 0.018
+      const boxHeight = canvas.height * 0.075
+      const boxX = Math.max(canvas.width * 0.04, (canvas.width - metrics.width) / 2 - padding)
+      const boxWidth = Math.min(canvas.width * 0.92, metrics.width + padding * 2)
+      ctx.fillStyle = "rgba(0,0,0,0.82)"
+      roundedRectPath(ctx, boxX, canvas.height - boxHeight - canvas.height * 0.04, boxWidth, boxHeight, 10)
+      ctx.fill()
+      ctx.fillStyle = "#ffffff"
+      ctx.fillText(caption.text, canvas.width / 2, canvas.height - canvas.height * 0.07)
+    }
 
-    if (t >= end || screen.ended) {
-      cancelAnimationFrame(raf)
-      screen.pause()
-      camera?.pause()
-      if (recorder.state !== "inactive") recorder.stop()
-      void audioCtx.close()
-      return
+    const activeSegment = activeSegments[segmentIndex]
+    onProgress?.(Math.max(0, Math.min(1, (completedDuration + t - activeSegment.sourceStart) / span)))
+
+    if (t >= activeSegment.sourceEnd || screen.ended) {
+      const next = activeSegments[segmentIndex + 1]
+      if (next) {
+        if (!switchingSegment) {
+          switchingSegment = true
+          completedDuration += activeSegment.sourceEnd - activeSegment.sourceStart
+          segmentIndex += 1
+          screen.pause()
+          camera?.pause()
+          void Promise.all([
+            seek(screen, next.sourceStart),
+            camera ? seek(camera, Math.min(next.sourceStart, camera.duration || next.sourceStart)) : Promise.resolve(),
+          ]).then(() => Promise.all([screen.play(), camera?.play()].filter(Boolean) as Promise<void>[])).finally(() => {
+            switchingSegment = false
+          })
+        }
+      } else {
+        cancelAnimationFrame(raf)
+        screen.pause()
+        camera?.pause()
+        if (recorder.state !== "inactive") recorder.stop()
+        void audioCtx.close()
+        return
+      }
     }
     raf = requestAnimationFrame(render)
   }

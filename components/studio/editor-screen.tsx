@@ -1,7 +1,8 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  Captions,
   Check,
   Circle,
   Download,
@@ -12,14 +13,26 @@ import {
   Play,
   RectangleHorizontal,
   RotateCcw,
+  Redo2,
   Save,
+  Scissors,
   Square,
+  Trash2,
+  Type,
+  Undo2,
   Video,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CameraOverlay } from "@/components/studio/camera-overlay"
 import { Timeline } from "@/components/studio/timeline"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
+import {
+  DEFAULT_BRAND_KIT,
+  type BrandKit,
+  type CaptionCue,
+  type EditorSegment,
+  type TitleCard,
+} from "@/lib/editor-types"
 import { compositeToWebm, type ExportQuality } from "@/lib/export"
 import { extractFrames } from "@/lib/frames"
 import { captureThumbnail, saveVideoToLibrary, updateVideoInLibrary } from "@/lib/upload-video"
@@ -80,6 +93,17 @@ export function EditorScreen({
   const [aspect, setAspect] = useState(16 / 9)
   const [frames, setFrames] = useState<string[]>([])
   const framesForUrl = useRef<string | null>(null)
+  const [segments, setSegments] = useState<EditorSegment[]>([])
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
+  const [history, setHistory] = useState<EditorSegment[][]>([])
+  const [future, setFuture] = useState<EditorSegment[][]>([])
+  const [timelineZoom, setTimelineZoom] = useState(1)
+  const [captions, setCaptions] = useState<CaptionCue[]>([])
+  const [captioning, setCaptioning] = useState(false)
+  const [captionError, setCaptionError] = useState<string | null>(null)
+  const [titleCards, setTitleCards] = useState<TitleCard[]>([])
+  const [brandKit, setBrandKit] = useState<BrandKit>(DEFAULT_BRAND_KIT)
+  const [activeTool, setActiveTool] = useState<"cleanup" | "captions" | "titles" | "brand">("cleanup")
 
   const [layout, setLayout] = useState<CameraLayout>(initialLayout)
   const [cameraVisible, setCameraVisible] = useState(hasCamera)
@@ -102,6 +126,7 @@ export function EditorScreen({
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : recording.duration
     setDuration(dur)
     setTrim({ start: 0, end: dur })
+    setSegments((current) => current.length ? current : [{ id: crypto.randomUUID(), sourceStart: 0, sourceEnd: dur }])
     if (v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
   }, [recording.duration])
 
@@ -134,13 +159,21 @@ export function EditorScreen({
     const v = screenRef.current
     if (!v) return
     setCurrentTime(v.currentTime)
-    if (v.currentTime >= trim.end) {
+    const segmentIndex = segments.findIndex((segment) => v.currentTime >= segment.sourceStart - 0.03 && v.currentTime <= segment.sourceEnd)
+    if (segments.length && segmentIndex >= 0 && v.currentTime >= segments[segmentIndex].sourceEnd - 0.03) {
+      const next = segments[segmentIndex + 1]
+      if (next) {
+        v.currentTime = next.sourceStart
+        if (cameraRef.current) cameraRef.current.currentTime = next.sourceStart
+      }
+    }
+    if (v.currentTime >= trim.end || (segments.length > 0 && v.currentTime >= segments.at(-1)!.sourceEnd)) {
       pause()
-      v.currentTime = trim.end
+      v.currentTime = segments.at(-1)?.sourceEnd ?? trim.end
       return
     }
     rafRef.current = requestAnimationFrame(tick)
-  }, [trim.end, pause])
+  }, [segments, trim.end, pause])
 
   const play = useCallback(() => {
     const v = screenRef.current
@@ -161,6 +194,83 @@ export function EditorScreen({
     setCurrentTime(time)
   }, [])
 
+  const commitSegments = useCallback((next: EditorSegment[]) => {
+    setHistory((items) => [...items.slice(-49), segments])
+    setFuture([])
+    setSegments(next)
+    setSelectedSegmentId(next[0]?.id ?? null)
+  }, [segments])
+
+  const splitAtPlayhead = useCallback(() => {
+    const target = segments.find((segment) => currentTime > segment.sourceStart + 0.1 && currentTime < segment.sourceEnd - 0.1)
+    if (!target) return
+    commitSegments(segments.flatMap((segment) => segment.id === target.id ? [
+      { ...segment, id: crypto.randomUUID(), sourceEnd: currentTime },
+      { ...segment, id: crypto.randomUUID(), sourceStart: currentTime },
+    ] : [segment]))
+  }, [commitSegments, currentTime, segments])
+
+  const deleteSelected = useCallback(() => {
+    if (!selectedSegmentId || segments.length <= 1) return
+    commitSegments(segments.filter((segment) => segment.id !== selectedSegmentId))
+  }, [commitSegments, segments, selectedSegmentId])
+
+  const undo = useCallback(() => {
+    const previous = history.at(-1)
+    if (!previous) return
+    setFuture((items) => [segments, ...items])
+    setSegments(previous)
+    setHistory((items) => items.slice(0, -1))
+    setSelectedSegmentId(null)
+  }, [history, segments])
+
+  const redo = useCallback(() => {
+    const next = future[0]
+    if (!next) return
+    setHistory((items) => [...items, segments])
+    setSegments(next)
+    setFuture((items) => items.slice(1))
+    setSelectedSegmentId(null)
+  }, [future, segments])
+
+  const generateCaptions = useCallback(async () => {
+    setCaptioning(true)
+    setCaptionError(null)
+    try {
+      const form = new FormData()
+      form.append("media", recording.screen.blob, "recording.webm")
+      const response = await fetch("/api/captions", { method: "POST", body: form })
+      if (!response.ok) throw new Error("Caption generation failed")
+      const data = await response.json() as { captions: CaptionCue[] }
+      setCaptions(data.captions)
+    } catch (error) {
+      console.error("[v0] caption generation failed:", error)
+      setCaptionError("Could not generate captions. Try again with a shorter recording.")
+    } finally {
+      setCaptioning(false)
+    }
+  }, [recording.screen.blob])
+
+  const addTitleCard = useCallback(() => {
+    const card: TitleCard = {
+      id: crypto.randomUUID(),
+      start: currentTime,
+      end: Math.min(duration, currentTime + 3),
+      title: "Section title",
+      subtitle: "Add a short description",
+    }
+    setTitleCards((cards) => [...cards, card])
+  }, [currentTime, duration])
+
+  const activeCaption = useMemo(
+    () => captions.find((caption) => currentTime >= caption.start && currentTime <= caption.end),
+    [captions, currentTime],
+  )
+  const activeTitleCard = useMemo(
+    () => titleCards.find((card) => currentTime >= card.start && currentTime <= card.end),
+    [titleCards, currentTime],
+  )
+
   // Keep the playhead within the trim window when the in-point moves past it.
   useEffect(() => {
     if (currentTime < trim.start) seek(trim.start)
@@ -169,8 +279,34 @@ export function EditorScreen({
 
   useEffect(() => () => stopLoop(), [stopLoop])
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) return
+      if (event.code === "Space") {
+        event.preventDefault()
+        playing ? pause() : play()
+      } else if (event.key.toLowerCase() === "s") {
+        event.preventDefault()
+        splitAtPlayhead()
+      } else if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault()
+        deleteSelected()
+      } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault()
+        event.shiftKey ? redo() : undo()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [deleteSelected, pause, play, playing, redo, splitAtPlayhead, undo])
+
+  const trimmedDuration = segments.length
+    ? segments.reduce((total, segment) => total + segment.sourceEnd - segment.sourceStart, 0)
+    : Math.max(0, trim.end - trim.start)
+
   const getRenderedOutput = useCallback(async (): Promise<Blob> => {
-    const key = JSON.stringify({ cameraVisible, layout, trim, exportFormat, exportQuality })
+    const key = JSON.stringify({ cameraVisible, layout, trim, segments, captions, titleCards, brandKit, exportFormat, exportQuality })
     if (renderKeyRef.current === key && exportedBlob) return exportedBlob
 
     setCompositeProgress(0)
@@ -181,6 +317,10 @@ export function EditorScreen({
       layout,
       trim,
       quality: exportQuality,
+      segments,
+      captions,
+      titleCards,
+      brandKit,
       onProgress: setCompositeProgress,
     })
     const output =
@@ -190,7 +330,7 @@ export function EditorScreen({
     setExportedBlob(output)
     renderKeyRef.current = key
     return output
-  }, [recording, cameraVisible, layout, trim, exportFormat, exportQuality, exportedBlob, ffmpeg])
+  }, [recording, cameraVisible, layout, trim, segments, captions, titleCards, brandKit, exportFormat, exportQuality, exportedBlob, ffmpeg])
 
   const runExport = useCallback(async () => {
     setExportError(null)
@@ -228,7 +368,7 @@ export function EditorScreen({
       video: output,
       thumbnail,
       title: title.trim() || "Untitled recording",
-      durationSeconds: Math.max(0, trim.end - trim.start),
+      durationSeconds: trimmedDuration,
       filename: `recording.${exportFormat}`,
     }
     const saved = sourceVideo
@@ -244,7 +384,7 @@ export function EditorScreen({
       )
       setSavePhase("error")
     }
-  }, [getRenderedOutput, trim, pause, title, exportFormat, sourceVideo, onSaved])
+  }, [getRenderedOutput, trim.start, trim.end, segments, pause, title, exportFormat, sourceVideo, onSaved])
 
   useEffect(() => {
     renderKeyRef.current = null
@@ -254,12 +394,10 @@ export function EditorScreen({
       return null
     })
     setPhase("idle")
-  }, [layout, trim, cameraVisible, exportFormat, exportQuality])
+  }, [layout, trim, segments, captions, titleCards, brandKit, cameraVisible, exportFormat, exportQuality])
 
   const busy = phase === "compositing" || phase === "transcoding"
   const saving = savePhase === "processing" || savePhase === "uploading"
-  const trimmedDuration = Math.max(0, trim.end - trim.start)
-
   return (
     <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-5 px-5 py-8 lg:px-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -307,6 +445,38 @@ export function EditorScreen({
                 />
               </CameraOverlay>
             )}
+            {activeTitleCard && (
+              <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 px-12 text-center text-white backdrop-blur-sm">
+                <p className="text-balance text-3xl font-semibold tracking-tight">{activeTitleCard.title}</p>
+                <p className="mt-2 text-pretty text-sm text-white/70">{activeTitleCard.subtitle}</p>
+              </div>
+            )}
+            {activeCaption && (
+              <div className="pointer-events-none absolute inset-x-8 bottom-5 z-30 flex justify-center">
+                <p className="max-w-3xl rounded-md bg-black/80 px-4 py-2 text-center text-lg font-semibold text-white shadow-lg">
+                  {activeCaption.text}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card p-2">
+            <div className="flex items-center gap-1">
+              <Button size="sm" variant="secondary" onClick={splitAtPlayhead} className="gap-2">
+                <Scissors className="size-3.5" /> Split
+              </Button>
+              <Button size="sm" variant="ghost" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2">
+                <Trash2 className="size-3.5" /> Ripple delete
+              </Button>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <Button size="icon" variant="ghost" onClick={undo} disabled={!history.length} aria-label="Undo">
+                <Undo2 className="size-4" />
+              </Button>
+              <Button size="icon" variant="ghost" onClick={redo} disabled={!future.length} aria-label="Redo">
+                <Redo2 className="size-4" />
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Split at the playhead, select a clip, then ripple delete.</p>
           </div>
 
           {/* Transport */}
@@ -325,6 +495,13 @@ export function EditorScreen({
                 trim={trim}
                 currentTime={currentTime}
                 frames={frames}
+                segments={segments}
+                captions={captions}
+                titleCards={titleCards}
+                selectedSegmentId={selectedSegmentId}
+                zoom={timelineZoom}
+                onZoomChange={setTimelineZoom}
+                onSelectSegment={setSelectedSegmentId}
                 onTrimChange={setTrim}
                 onSeek={seek}
               />
@@ -334,6 +511,77 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
+          <div className="grid grid-cols-4 gap-1 rounded-md border border-border bg-card p-1">
+            {([
+              ["cleanup", Scissors, "Cut"],
+              ["captions", Captions, "CC"],
+              ["titles", Type, "Titles"],
+              ["brand", Film, "Brand"],
+            ] as const).map(([tool, Icon, label]) => (
+              <button key={tool} type="button" onClick={() => setActiveTool(tool)} className={cn("flex flex-col items-center gap-1 rounded-sm px-1 py-2 text-[11px] font-medium transition-colors", activeTool === tool ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                <Icon className="size-4" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {activeTool === "cleanup" && (
+            <div className="rounded-md border border-border bg-card p-4">
+              <p className="text-sm font-medium">Fast cleanup</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Place the playhead, split, then select a clip on the timeline to remove it. Every cut can be undone.</p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button size="sm" variant="secondary" onClick={splitAtPlayhead} className="gap-2"><Scissors className="size-3.5" />Split</Button>
+                <Button size="sm" variant="secondary" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2"><Trash2 className="size-3.5" />Delete</Button>
+              </div>
+            </div>
+          )}
+
+          {activeTool === "captions" && (
+            <div className="rounded-md border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">Captions</p>
+                <Button size="sm" variant="secondary" onClick={() => void generateCaptions()} disabled={captioning}>
+                  {captioning ? <Loader2 className="size-3.5 animate-spin" /> : captions.length ? "Regenerate" : "Auto caption"}
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">Generate timed captions, then correct the transcript below.</p>
+              {captionError && <p className="mt-2 text-xs text-destructive-foreground">{captionError}</p>}
+              <div className="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
+                {captions.map((caption) => (
+                  <label key={caption.id} className="rounded-sm border border-border bg-background p-2">
+                    <span className="mb-1 block text-[10px] tabular-nums text-muted-foreground">{caption.start.toFixed(1)}s – {caption.end.toFixed(1)}s</span>
+                    <textarea value={caption.text} onChange={(event) => setCaptions((items) => items.map((item) => item.id === caption.id ? { ...item, text: event.target.value } : item))} rows={2} className="w-full resize-none bg-transparent text-xs outline-none" />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTool === "titles" && (
+            <div className="rounded-md border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">Title cards</p><Button size="sm" variant="secondary" onClick={addTitleCard}>Add at playhead</Button></div>
+              <p className="mt-1 text-xs text-muted-foreground">Create simple section breaks without leaving the editor.</p>
+              <div className="mt-3 flex flex-col gap-2">
+                {titleCards.map((card) => (
+                  <div key={card.id} className="rounded-sm border border-border bg-background p-2">
+                    <input value={card.title} onChange={(event) => setTitleCards((cards) => cards.map((item) => item.id === card.id ? { ...item, title: event.target.value } : item))} aria-label="Title card heading" className="w-full bg-transparent text-sm font-medium outline-none" />
+                    <input value={card.subtitle} onChange={(event) => setTitleCards((cards) => cards.map((item) => item.id === card.id ? { ...item, subtitle: event.target.value } : item))} aria-label="Title card subtitle" className="mt-1 w-full bg-transparent text-xs text-muted-foreground outline-none" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTool === "brand" && (
+            <div className="rounded-md border border-border bg-card p-4">
+              <p className="text-sm font-medium">Brand kit</p>
+              <p className="mt-1 text-xs text-muted-foreground">Set a consistent look for titles and captions in this project.</p>
+              <label className="mt-3 block text-xs text-muted-foreground">Kit name<input value={brandKit.name} onChange={(event) => setBrandKit((kit) => ({ ...kit, name: event.target.value }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none" /></label>
+              <label className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">Accent color<input type="color" value={brandKit.primaryColor} onChange={(event) => setBrandKit((kit) => ({ ...kit, primaryColor: event.target.value }))} className="size-8 rounded-sm border border-border bg-transparent" /></label>
+              <label className="mt-3 block text-xs text-muted-foreground">Typeface<select value={brandKit.fontFamily} onChange={(event) => setBrandKit((kit) => ({ ...kit, fontFamily: event.target.value as BrandKit["fontFamily"] }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground"><option value="geist">Geist Sans</option><option value="serif">Editorial Serif</option><option value="mono">Geist Mono</option></select></label>
+            </div>
+          )}
+
           {hasCamera && (
             <div className="rounded-md border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
