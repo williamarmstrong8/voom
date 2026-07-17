@@ -32,7 +32,6 @@ import { Timeline } from "@/components/studio/timeline"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
 import {
   DEFAULT_BRAND_KIT,
-  type BrandKit,
   type CaptionCue,
   type EditorSegment,
   type TitleCard,
@@ -115,8 +114,8 @@ export function EditorScreen({
   const [captioning, setCaptioning] = useState(false)
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>([])
-  const [brandKit, setBrandKit] = useState<BrandKit>(DEFAULT_BRAND_KIT)
-  const [activeTool, setActiveTool] = useState<"captions" | "brand" | "camera" | "export">("captions")
+  const [brandKit] = useState(DEFAULT_BRAND_KIT)
+  const [activeTool, setActiveTool] = useState<"captions" | "camera" | "export">("captions")
 
   const [layout, setLayout] = useState<CameraLayout>(initialLayout)
   const [cameraVisible, setCameraVisible] = useState(hasCamera)
@@ -531,10 +530,9 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
-          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-4" : "grid-cols-3")}>
+          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-3" : "grid-cols-2")}>
             {([
               ["captions", Captions, "CC"],
-              ["brand", Film, "Brand"],
               ...(hasCamera ? [["camera", Video, "Camera"]] as const : []),
               ["export", Download, "Export"],
             ] as const).map(([tool, Icon, label]) => (
@@ -563,16 +561,6 @@ export function EditorScreen({
                   </label>
                 ))}
               </div>
-            </div>
-          )}
-
-          {activeTool === "brand" && (
-            <div className="rounded-md border border-border bg-card p-4">
-              <p className="text-sm font-medium">Brand kit</p>
-              <p className="mt-1 text-xs text-muted-foreground">Set a consistent look for captions and exported videos in this project.</p>
-              <label className="mt-3 block text-xs text-muted-foreground">Kit name<input value={brandKit.name} onChange={(event) => setBrandKit((kit) => ({ ...kit, name: event.target.value }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none" /></label>
-              <label className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">Accent color<input type="color" value={brandKit.primaryColor} onChange={(event) => setBrandKit((kit) => ({ ...kit, primaryColor: event.target.value }))} className="size-8 rounded-sm border border-border bg-transparent" /></label>
-              <label className="mt-3 block text-xs text-muted-foreground">Typeface<select value={brandKit.fontFamily} onChange={(event) => setBrandKit((kit) => ({ ...kit, fontFamily: event.target.value as BrandKit["fontFamily"] }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground"><option value="geist">Geist Sans</option><option value="serif">Editorial Serif</option><option value="mono">Geist Mono</option></select></label>
             </div>
           )}
 
