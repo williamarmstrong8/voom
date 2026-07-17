@@ -81,7 +81,7 @@ export function VideoViewScreen({
         </div>
       </header>
 
-      <section className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-border bg-black shadow-sm" aria-label="Video player">
+      <section className="flex flex-1 items-center justify-center overflow-hidden" aria-label="Video player">
         {playbackUrl ? (
           <video
             src={playbackUrl}
@@ -89,12 +89,12 @@ export function VideoViewScreen({
             controls
             playsInline
             preload="metadata"
-            className="max-h-[calc(100svh-15rem)] w-full object-contain"
+            className="max-h-[calc(100svh-15rem)] h-auto w-auto max-w-full rounded-lg border border-border bg-black object-contain shadow-sm"
           >
             <track kind="captions" />
           </video>
         ) : (
-          <div className="flex min-h-96 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <div className="flex min-h-96 w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-muted-foreground shadow-sm">
             <VideoIcon className="size-8" />
             <p className="text-copy-14">This video is unavailable.</p>
           </div>
