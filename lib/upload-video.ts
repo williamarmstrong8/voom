@@ -82,10 +82,19 @@ async function uploadTrack(
   extension: string,
   onProgress?: (fraction: number) => void,
 ): Promise<string> {
-  const result = await upload(`${folder}/track-${Date.now()}.${extension}`, blob, {
+  // MediaRecorder commonly returns codec-qualified types such as
+  // `video/webm;codecs=vp9`. Blob upload tokens intentionally allow stable base
+  // MIME types (`video/webm`), so strip parameters before upload. Blob.slice
+  // only changes metadata; it does not copy, transcode, or alter the media.
+  const contentType = blob.type.split(";", 1)[0].trim().toLowerCase() || undefined
+  const uploadBlob = contentType && blob.type !== contentType
+    ? blob.slice(0, blob.size, contentType)
+    : blob
+
+  const result = await upload(`${folder}/track-${Date.now()}.${extension}`, uploadBlob, {
     access: "private",
     handleUploadUrl: "/api/videos/upload",
-    contentType: blob.type || undefined,
+    contentType,
     onUploadProgress: onProgress
       ? ({ percentage }) => onProgress(Math.max(0, Math.min(1, percentage / 100)))
       : undefined,
