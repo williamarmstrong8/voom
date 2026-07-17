@@ -8,7 +8,6 @@ import {
   Download,
   Expand,
   Film,
-  Layers,
   Loader2,
   Pause,
   Play,
@@ -120,7 +119,12 @@ export function EditorScreen({
   const [aspect, setAspect] = useState(16 / 9)
   const [frames, setFrames] = useState<string[]>([])
   const framesForUrl = useRef<string | null>(null)
-  const [segments, setSegments] = useState<EditorSegment[]>(initialState?.segments ?? [])
+  const [segments, setSegments] = useState<EditorSegment[]>(
+    initialState?.segments.map((segment) => ({
+      ...segment,
+      composition: segment.composition ?? "screen-camera",
+    })) ?? [],
+  )
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [history, setHistory] = useState<EditorSegment[][]>([])
   const [future, setFuture] = useState<EditorSegment[][]>([])
@@ -153,7 +157,7 @@ export function EditorScreen({
     const dur = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : recording.duration
     setDuration(dur)
     setTrim({ start: 0, end: dur })
-    setSegments((current) => current.length ? current : [{ id: crypto.randomUUID(), sourceStart: 0, sourceEnd: dur }])
+    setSegments((current) => current.length ? current : [{ id: crypto.randomUUID(), sourceStart: 0, sourceEnd: dur, composition: "screen-camera" }])
     if (v.videoWidth && v.videoHeight) setAspect(v.videoWidth / v.videoHeight)
   }, [recording.duration])
 
@@ -342,6 +346,23 @@ export function EditorScreen({
     () => titleCards.find((card) => currentTime >= card.start && currentTime <= card.end),
     [titleCards, currentTime],
   )
+  const activeSegment = useMemo(
+    () => segments.find((segment) => currentTime >= segment.sourceStart && currentTime <= segment.sourceEnd),
+    [currentTime, segments],
+  )
+  const selectedSegment = useMemo(
+    () => segments.find((segment) => segment.id === selectedSegmentId) ?? null,
+    [segments, selectedSegmentId],
+  )
+  const cameraOnly = activeSegment?.composition === "camera-only" && hasCamera
+
+  const setSelectedComposition = useCallback((composition: "screen-camera" | "camera-only") => {
+    if (!selectedSegment || (composition === "camera-only" && !hasCamera)) return
+    commitSegments(
+      segments.map((segment) => segment.id === selectedSegment.id ? { ...segment, composition } : segment),
+      selectedSegment.id,
+    )
+  }, [commitSegments, hasCamera, segments, selectedSegment])
 
   // Keep the playhead within the trim window when the in-point moves past it.
   useEffect(() => {
@@ -456,11 +477,16 @@ export function EditorScreen({
   const buildEditorState = useCallback((): EditorState => {
     const activeSegments = segments.length
       ? segments
-      : [{ id: crypto.randomUUID(), sourceStart: trim.start, sourceEnd: trim.end }]
+      : [{ id: crypto.randomUUID(), sourceStart: trim.start, sourceEnd: trim.end, composition: "screen-camera" as const }]
     return {
       version: 1,
       duration,
-      segments: activeSegments.map((s) => ({ id: s.id, sourceStart: s.sourceStart, sourceEnd: s.sourceEnd })),
+      segments: activeSegments.map((s) => ({
+        id: s.id,
+        sourceStart: s.sourceStart,
+        sourceEnd: s.sourceEnd,
+        composition: s.composition ?? "screen-camera",
+      })),
       camera: { visible: cameraVisible, layout },
       captions,
       titleCards,
@@ -543,14 +569,24 @@ export function EditorScreen({
               onClick={() => (playing ? pause() : play())}
               onVolumeChange={(event) => setVolume(event.currentTarget.muted ? 0 : event.currentTarget.volume)}
               playsInline
-              className="h-full w-full object-fill"
+              className={cn("h-full w-full object-fill", cameraOnly && "invisible")}
             />
+
+            {cameraOnly && recording.camera && (
+              <video
+                ref={cameraRef}
+                src={recording.camera.url}
+                muted
+                playsInline
+                className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
+              />
+            )}
 
             {recording.audio && (
               <audio ref={audioRef} src={recording.audio.url} preload="auto" className="hidden" />
             )}
 
-            {hasCamera && cameraVisible && (
+            {hasCamera && cameraVisible && !cameraOnly && (
               <CameraOverlay layout={layout} onLayoutChange={setLayout}>
                 <video
                   ref={cameraRef}
@@ -590,10 +626,41 @@ export function EditorScreen({
           <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-card p-1.5">
             <Button size="sm" variant="ghost" onClick={splitAtPlayhead} className="gap-2"><Scissors className="size-3.5" />Split</Button>
             <Button size="sm" variant="ghost" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2"><Trash2 className="size-3.5" />Delete</Button>
+            {hasCamera && selectedSegment && (
+              <>
+                <div className="mx-1 h-5 w-px bg-border" />
+                <div className="flex items-center rounded-sm bg-secondary p-0.5" aria-label="Selected clip view">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedComposition("screen-camera")}
+                    aria-pressed={selectedSegment.composition !== "camera-only"}
+                    className={cn(
+                      "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+                      selectedSegment.composition !== "camera-only" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Screen + camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedComposition("camera-only")}
+                    aria-pressed={selectedSegment.composition === "camera-only"}
+                    className={cn(
+                      "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+                      selectedSegment.composition === "camera-only" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Camera only
+                  </button>
+                </div>
+              </>
+            )}
             <div className="mx-1 h-5 w-px bg-border" />
             <Button size="icon" variant="ghost" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 className="size-4" /></Button>
             <Button size="icon" variant="ghost" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 className="size-4" /></Button>
-            <span className="ml-auto text-xs text-muted-foreground">Select a clip to trim or delete it</span>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {hasCamera ? "Split, select a clip, then choose its view" : "Select a clip to trim or delete it"}
+            </span>
           </div>
 
           <Timeline
@@ -843,38 +910,6 @@ export function EditorScreen({
             )}
           </div>
 
-          {/* Separate layers */}
-          <div className="rounded-md border border-border bg-card p-4">
-            <p className="mb-1 flex items-center gap-2 text-sm font-medium">
-              <Layers className="size-4 text-muted-foreground" />
-              Separate layers
-            </p>
-            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
-              Download the raw tracks to recompose in another editor.
-            </p>
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                className="justify-start gap-2"
-                onClick={() => downloadBlobUrl(recording.screen.url, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)}
-              >
-                <Download className="size-3.5" />
-                Screen track
-              </Button>
-              {recording.camera && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="justify-start gap-2"
-                  onClick={() => downloadBlobUrl(recording.camera!.url, `camera.${recording.camera!.mimeType.includes("mp4") ? "mp4" : "webm"}`)}
-                >
-                  <Download className="size-3.5" />
-                  Camera track
-                </Button>
-              )}
-            </div>
-          </div>
             </>
           )}
         </aside>

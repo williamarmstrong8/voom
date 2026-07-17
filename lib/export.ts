@@ -310,11 +310,24 @@ export async function compositeToFile({
 
   recorder.start(200)
   const render = () => {
+    const activeSegment = activeSegments[segmentIndex]
+    const cameraOnly = activeSegment.composition === "camera-only" && camera
+
     ctx.fillStyle = "#000000"
     ctx.fillRect(0, 0, canvas.width, canvas.height)
-    drawCover(ctx, screen, 0, 0, canvas.width, canvas.height)
+    if (cameraOnly) {
+      // Presenter cutaways fill the same output frame as the screen recording.
+      // Mirror the camera to match the editor's self-view.
+      ctx.save()
+      ctx.translate(canvas.width, 0)
+      ctx.scale(-1, 1)
+      drawCover(ctx, camera, 0, 0, canvas.width, canvas.height)
+      ctx.restore()
+    } else {
+      drawCover(ctx, screen, 0, 0, canvas.width, canvas.height)
+    }
 
-    if (camera) {
+    if (camera && !cameraOnly) {
       const camW = layout.width * canvas.width
       // An equilateral triangle's height is √3 / 2 of its width.
       const camH = layout.shape === "rounded" ? camW * (9 / 16) : layout.shape === "triangle" ? camW * (Math.sqrt(3) / 2) : camW
@@ -387,7 +400,6 @@ export async function compositeToFile({
       ctx.fillText(caption.text, canvas.width / 2, canvas.height - canvas.height * 0.07)
     }
 
-    const activeSegment = activeSegments[segmentIndex]
     // Frame advanced — reset the stall watchdog.
     lastProgressAt = performance.now()
     onProgress?.(Math.max(0, Math.min(1, (completedDuration + t - activeSegment.sourceStart) / span)))
@@ -452,7 +464,12 @@ export function canPassthrough({
   screenMimeType,
   requestedFormat,
 }: PassthroughCheck): boolean {
-  if ((hasCamera && cameraVisible) || captions.length > 0 || titleCards.length > 0) return false
+  if (
+    (hasCamera && cameraVisible) ||
+    segments.some((segment) => segment.composition === "camera-only") ||
+    captions.length > 0 ||
+    titleCards.length > 0
+  ) return false
   const sourceIsMp4 = screenMimeType.includes("mp4")
   const sourceIsWebm = screenMimeType.includes("webm")
   const formatMatches =

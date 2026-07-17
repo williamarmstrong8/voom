@@ -10,7 +10,13 @@ export type StudioMode = "dashboard" | "setup" | "recording" | "viewing" | "edit
 export interface EditorState {
   version: 1
   duration: number
-  segments: { id: string; sourceStart: number; sourceEnd: number }[]
+  segments: {
+    id: string
+    sourceStart: number
+    sourceEnd: number
+    /** Omitted by legacy projects; interpreted as screen-camera. */
+    composition?: "screen-camera" | "camera-only"
+  }[]
   camera: {
     visible: boolean
     layout: CameraLayout

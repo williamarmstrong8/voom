@@ -190,7 +190,11 @@ export function Timeline({
               ))}
                     </div>
                   </div>
-                  <span className="pointer-events-none absolute bottom-1 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">Clip {index + 1}</span>
+                  <span className="pointer-events-none absolute bottom-1 left-2 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    Clip {index + 1}
+                    <span className="text-white/65">·</span>
+                    {segment.composition === "camera-only" ? "Camera" : "Screen + camera"}
+                  </span>
                   {(["start", "end"] as const).map((edge) => (
                     <button key={edge} type="button" aria-label={`Trim clip ${index + 1} ${edge}`} className={cn("absolute inset-y-0 z-20 w-7 cursor-ew-resize touch-none opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100", selected && "opacity-100", edge === "start" ? "-left-3" : "-right-3")} onPointerDown={(event) => beginEdgeDrag(segment.id, edge, event)} onPointerMove={(event) => moveEdge(segment.id, edge, event)} onPointerUp={endEdgeDrag} onPointerCancel={endEdgeDrag}>
                       <span className={cn("absolute top-1/2 flex h-12 w-4 -translate-y-1/2 items-center justify-center rounded-md bg-primary shadow-md", edge === "start" ? "left-1" : "right-1")}>
