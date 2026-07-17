@@ -19,6 +19,7 @@ import {
   RotateCw,
   Scissors,
   Square,
+  Triangle,
   Trash2,
   Undo2,
   Video,
@@ -599,7 +600,7 @@ export function EditorScreen({
               {cameraVisible && (
                 <>
                   <p className="mb-2 text-xs text-muted-foreground">Shape</p>
-                  <div className="mb-4 grid grid-cols-3 gap-2">
+                  <div className="mb-4 grid grid-cols-4 gap-2">
                     <ShapeButton
                       active={layout.shape === "rounded"}
                       onClick={() => setLayout((l) => ({ ...l, shape: "rounded" }))}
@@ -612,13 +613,19 @@ export function EditorScreen({
                       icon={<Square className="size-4" />}
                       label="Square"
                     />
-                    <ShapeButton
-                      active={layout.shape === "circle"}
-                      onClick={() => setLayout((l) => ({ ...l, shape: "circle" }))}
-                      icon={<Circle className="size-4" />}
-                      label="Circle"
-                    />
-                  </div>
+                <ShapeButton
+                  active={layout.shape === "circle"}
+                  onClick={() => setLayout((l) => ({ ...l, shape: "circle" }))}
+                  icon={<Circle className="size-4" />}
+                  label="Circle"
+                />
+                <ShapeButton
+                  active={layout.shape === "triangle"}
+                  onClick={() => setLayout((l) => ({ ...l, shape: "triangle" }))}
+                  icon={<Triangle className="size-4" />}
+                  label="Triangle"
+                />
+              </div>
 
                   <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Size</span>

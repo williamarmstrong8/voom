@@ -110,7 +110,9 @@ export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverla
             ? "rounded-full"
             : layout.shape === "square"
               ? "rounded-md"
-              : "rounded-sm",
+              : layout.shape === "triangle"
+                ? "border-0"
+                : "rounded-sm",
           dragging && "ring-2 ring-primary",
         )}
         style={{
@@ -118,6 +120,7 @@ export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverla
           aspectRatio: String(1 / aspect),
           left: `${layout.left * 100}%`,
           bottom: `${layout.bottom * 100}%`,
+          clipPath: layout.shape === "triangle" ? "polygon(50% 0%, 100% 100%, 0% 100%)" : undefined,
         }}
       >
         {children}

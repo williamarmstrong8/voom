@@ -192,6 +192,12 @@ export async function compositeToWebm({
           ctx.beginPath()
           ctx.arc(x + camW / 2, y + camH / 2, Math.min(camW, camH) / 2, 0, Math.PI * 2)
           ctx.closePath()
+        } else if (layout.shape === "triangle") {
+          ctx.beginPath()
+          ctx.moveTo(x + camW / 2, y)
+          ctx.lineTo(x + camW, y + camH)
+          ctx.lineTo(x, y + camH)
+          ctx.closePath()
         } else {
           roundedRectPath(ctx, x, y, camW, camH, cornerRadius)
         }
