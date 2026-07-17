@@ -10,6 +10,15 @@ import {
   Video as VideoIcon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { useVideos } from "@/hooks/use-videos"
 import type { SavedVideo } from "@/lib/studio-types"
 
@@ -49,13 +58,18 @@ interface DashboardProps {
 export function Dashboard({ onRecord, onOpenVideo, initialVideos = [] }: DashboardProps) {
   const { videos, loading, error, refresh, setVideos } = useVideos(initialVideos)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  // The video queued for deletion. Non-null means the confirm dialog is open.
+  const [pendingDelete, setPendingDelete] = useState<SavedVideo | null>(null)
 
-  async function handleDelete(id: string) {
-    setDeletingId(id)
+  async function confirmDelete() {
+    const target = pendingDelete
+    if (!target) return
+    setPendingDelete(null)
+    setDeletingId(target.id)
     // Optimistically drop it from the list.
-    setVideos((curr) => curr.filter((v) => v.id !== id))
+    setVideos((curr) => curr.filter((v) => v.id !== target.id))
     try {
-      await fetch(`/api/videos/${id}`, { method: "DELETE" })
+      await fetch(`/api/videos/${target.id}`, { method: "DELETE" })
     } finally {
       setDeletingId(null)
       void refresh()
@@ -108,12 +122,42 @@ export function Dashboard({ onRecord, onOpenVideo, initialVideos = [] }: Dashboa
               video={video}
               deleting={deletingId === video.id}
               onOpen={() => onOpenVideo(video)}
-              onDelete={() => handleDelete(video.id)}
+              onDelete={() => setPendingDelete(video)}
             />
           ))}
         </section>
       )}
 
+      <Dialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this video?</DialogTitle>
+            <DialogDescription>
+              {pendingDelete
+                ? `“${pendingDelete.title}” will be permanently removed from your library. This can’t be undone.`
+                : "This can’t be undone."}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose
+              render={<Button variant="outline">Cancel</Button>}
+            />
+            <Button
+              variant="destructive"
+              onClick={() => void confirmDelete()}
+              className="gap-2"
+            >
+              <Trash2 className="size-4" />
+              Delete video
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   )
 }

@@ -38,7 +38,7 @@ import {
 } from "@/lib/editor-types"
 import { compositeToWebm, type ExportQuality } from "@/lib/export"
 import { extractFrames } from "@/lib/frames"
-import { captureThumbnail, saveVideoToLibrary, updateVideoInLibrary } from "@/lib/upload-video"
+import { captureThumbnailFromBlob, saveVideoToLibrary, updateVideoInLibrary } from "@/lib/upload-video"
 import {
   DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
@@ -406,11 +406,9 @@ export function EditorScreen({
       setSavePhase("processing")
       const output = await getRenderedOutput()
 
-      // Grab a poster frame from the start of the trim window.
-      let thumbnail: Blob | null = null
-      if (screenRef.current) {
-        thumbnail = await captureThumbnail(screenRef.current, trim.start)
-      }
+      // Cover image = the first frame of the fully edited video (respects trim,
+      // segment order, title cards, camera overlay), not the raw source.
+      const thumbnail = await captureThumbnailFromBlob(output, 0)
 
       setSavePhase("uploading")
     const saveInput = {

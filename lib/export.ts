@@ -119,7 +119,13 @@ export async function compositeToWebm({
   // H.264/WebM encoders prefer even dimensions.
   canvas.width = Math.max(2, Math.round((sourceWidth * scale) / 2) * 2)
   canvas.height = Math.max(2, Math.round((sourceHeight * scale) / 2) * 2)
-  const ctx = canvas.getContext("2d")!
+  // Request a Display P3 canvas so wide-gamut source video (modern webcams,
+  // Retina/P3 displays) keeps its saturation. Drawing P3 video into the default
+  // sRGB canvas clamps colors into the smaller gamut, which is what washes the
+  // export out. Fall back to sRGB where P3 isn't supported.
+  let ctx = canvas.getContext("2d", { colorSpace: "display-p3" }) as CanvasRenderingContext2D | null
+  if (!ctx) ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Canvas 2D context unavailable")
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = "high"
 

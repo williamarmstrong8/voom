@@ -36,6 +36,41 @@ export async function captureThumbnail(
   }
 }
 
+/**
+ * Capture a poster frame from a fully-rendered output blob. Loading the final
+ * edited video (rather than the raw source) guarantees the cover matches what
+ * the viewer actually sees first: correct trim/segment start, camera overlay,
+ * title cards, and layout all baked in.
+ */
+export async function captureThumbnailFromBlob(
+  blob: Blob,
+  atTime = 0,
+): Promise<Blob | null> {
+  const url = URL.createObjectURL(blob)
+  try {
+    const video = await new Promise<HTMLVideoElement>((resolve, reject) => {
+      const v = document.createElement("video")
+      v.src = url
+      v.muted = true
+      v.playsInline = true
+      v.preload = "auto"
+      v.onloadeddata = () => resolve(v)
+      v.onerror = () => reject(new Error("Failed to load rendered video for thumbnail"))
+    })
+    // Nudge slightly past the very first frame to avoid an occasional black frame,
+    // but stay within the clip.
+    const dur = Number.isFinite(video.duration) ? video.duration : 0
+    const t = dur > 0 ? Math.min(atTime, Math.max(0, dur - 0.05)) : atTime
+    const thumb = await captureThumbnail(video, t)
+    video.src = ""
+    return thumb
+  } catch {
+    return null
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 interface SaveVideoInput {
   video: Blob
   thumbnail: Blob | null
