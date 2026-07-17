@@ -101,6 +101,9 @@ export function EditorScreen({
   const hasCamera = !!recording.camera
   const screenRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<HTMLVideoElement>(null)
+  // Narration is recorded as a separate mic track, so the preview plays it via
+  // a hidden <audio> kept in sync with the screen video (play/pause/seek/rate).
+  const audioRef = useRef<HTMLAudioElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef(0)
 
@@ -199,6 +202,7 @@ export function EditorScreen({
   const pause = useCallback(() => {
     screenRef.current?.pause()
     cameraRef.current?.pause()
+    audioRef.current?.pause()
     setPlaying(false)
     stopLoop()
   }, [stopLoop])
@@ -213,6 +217,7 @@ export function EditorScreen({
       if (next) {
         v.currentTime = next.sourceStart
         if (cameraRef.current) cameraRef.current.currentTime = next.sourceStart
+        if (audioRef.current) audioRef.current.currentTime = next.sourceStart
       }
     }
     if (v.currentTime >= trim.end || (segments.length > 0 && v.currentTime >= segments.at(-1)!.sourceEnd)) {
@@ -230,11 +235,17 @@ export function EditorScreen({
     if (!retained) {
       v.currentTime = segments[0].sourceStart
       if (cameraRef.current) cameraRef.current.currentTime = segments[0].sourceStart
+      if (audioRef.current) audioRef.current.currentTime = segments[0].sourceStart
     }
     v.playbackRate = playbackRate
     if (cameraRef.current) cameraRef.current.playbackRate = playbackRate
+    if (audioRef.current) {
+      audioRef.current.currentTime = v.currentTime
+      audioRef.current.playbackRate = playbackRate
+    }
     void v.play()
     void cameraRef.current?.play()
+    void audioRef.current?.play()
     setPlaying(true)
     rafRef.current = requestAnimationFrame(tick)
   }, [playbackRate, segments, tick])
@@ -242,6 +253,7 @@ export function EditorScreen({
   const seek = useCallback((time: number) => {
     if (screenRef.current) screenRef.current.currentTime = time
     if (cameraRef.current) cameraRef.current.currentTime = time
+    if (audioRef.current) audioRef.current.currentTime = time
     setCurrentTime(time)
   }, [])
 
@@ -534,6 +546,10 @@ export function EditorScreen({
               className="h-full w-full object-fill"
             />
 
+            {recording.audio && (
+              <audio ref={audioRef} src={recording.audio.url} preload="auto" className="hidden" />
+            )}
+
             {hasCamera && cameraVisible && (
               <CameraOverlay layout={layout} onLayoutChange={setLayout}>
                 <video
@@ -562,11 +578,11 @@ export function EditorScreen({
               <button type="button" onClick={() => (playing ? pause() : play())} className="rounded-sm p-2 hover:bg-white/15" aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}</button>
               <button type="button" onClick={() => skipBy(-10)} className="rounded-sm p-2 hover:bg-white/15" aria-label="Back 10 seconds"><RotateCcw className="size-4" /></button>
               <button type="button" onClick={() => skipBy(10)} className="rounded-sm p-2 hover:bg-white/15" aria-label="Forward 10 seconds"><RotateCw className="size-4" /></button>
-              <button type="button" onClick={() => { const video = screenRef.current; if (!video) return; video.muted = !video.muted; setVolume(video.muted ? 0 : video.volume) }} className="rounded-sm p-2 hover:bg-white/15" aria-label={volume === 0 ? "Unmute" : "Mute"}>{volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}</button>
-              <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (screenRef.current) { screenRef.current.volume = next; screenRef.current.muted = next === 0 } }} aria-label="Volume" className="w-20 accent-white" />
+              <button type="button" onClick={() => { const video = screenRef.current; if (!video) return; video.muted = !video.muted; if (audioRef.current) audioRef.current.muted = video.muted; setVolume(video.muted ? 0 : video.volume) }} className="rounded-sm p-2 hover:bg-white/15" aria-label={volume === 0 ? "Unmute" : "Mute"}>{volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}</button>
+              <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (screenRef.current) { screenRef.current.volume = next; screenRef.current.muted = next === 0 } if (audioRef.current) { audioRef.current.volume = next; audioRef.current.muted = next === 0 } }} aria-label="Volume" className="w-20 accent-white" />
               <span className="ml-2 text-xs tabular-nums text-white/80">{formatTransportTime(sourceToProjectTime(currentTime))} / {formatTransportTime(editedDuration)}</span>
               <div className="flex-1" />
-              <select value={playbackRate} onChange={(event) => { const next = Number(event.target.value); setPlaybackRate(next); if (screenRef.current) screenRef.current.playbackRate = next; if (cameraRef.current) cameraRef.current.playbackRate = next }} aria-label="Playback speed" className="rounded-sm bg-white/10 px-2 py-1.5 text-xs text-white outline-none"><option className="text-black" value="0.5">0.5×</option><option className="text-black" value="1">1×</option><option className="text-black" value="1.5">1.5×</option><option className="text-black" value="2">2×</option></select>
+              <select value={playbackRate} onChange={(event) => { const next = Number(event.target.value); setPlaybackRate(next); if (screenRef.current) screenRef.current.playbackRate = next; if (cameraRef.current) cameraRef.current.playbackRate = next; if (audioRef.current) audioRef.current.playbackRate = next }} aria-label="Playback speed" className="rounded-sm bg-white/10 px-2 py-1.5 text-xs text-white outline-none"><option className="text-black" value="0.5">0.5×</option><option className="text-black" value="1">1×</option><option className="text-black" value="1.5">1.5×</option><option className="text-black" value="2">2×</option></select>
               <button type="button" onClick={() => void previewRef.current?.requestFullscreen()} className="rounded-sm p-2 hover:bg-white/15" aria-label="Fullscreen"><Expand className="size-4" /></button>
             </div>
           </div>
