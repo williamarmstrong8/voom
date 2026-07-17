@@ -191,14 +191,6 @@ export function SetupScreen({
             {hasScreen && hasCameraVideo && (
               <PreviewCameraBubble stream={cameraStream} layout={layout} />
             )}
-
-            {prompterEnabled && (
-              <TeleprompterPreview
-                currentLine={previewScript.lines[0]?.text ?? ""}
-                nextLine={previewScript.lines[1]?.text}
-                fontSize={fontSize}
-              />
-            )}
           </div>
 
           {hasScreen && (
@@ -623,43 +615,6 @@ function TeleprompterPopoutPreview({
         )}
       </div>
     </main>
-  )
-}
-
-function TeleprompterPreview({
-  currentLine,
-  nextLine,
-  fontSize,
-}: {
-  currentLine: string
-  nextLine?: string
-  fontSize: number
-}) {
-  return (
-    <div
-      className="pointer-events-none absolute inset-x-4 bottom-4 z-20 mx-auto max-w-2xl overflow-hidden rounded-md border border-white/15 bg-black/75 text-white shadow-2xl backdrop-blur-xl"
-      aria-label="Teleprompter preview"
-    >
-      <div className="h-0.5 bg-white/15">
-        <div className="h-full w-0 bg-white" />
-      </div>
-      <div className="px-5 py-4">
-        <p
-          className="text-pretty font-medium leading-[1.3] tracking-tight"
-          style={{ fontSize: `clamp(16px, ${fontSize * 0.08}vw, ${fontSize}px)` }}
-        >
-          {currentLine || "Your script gets displayed here."}
-        </p>
-        {nextLine && (
-          <p
-            className="mt-2 line-clamp-1 text-pretty leading-[1.35] text-white/55"
-            style={{ fontSize: `clamp(13px, ${fontSize * 0.06}vw, ${Math.max(16, fontSize * 0.72)}px)` }}
-          >
-            {nextLine}
-          </p>
-        )}
-      </div>
-    </div>
   )
 }
 

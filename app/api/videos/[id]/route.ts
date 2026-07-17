@@ -1,96 +1,141 @@
-import { del, put } from "@vercel/blob"
+import { del } from "@vercel/blob"
 import { NextResponse } from "next/server"
-import { pool, type VideoRow } from "@/lib/db"
+import {
+  ensureVideosSchema,
+  pool,
+  rowToSavedVideo,
+  SELECT_COLUMNS,
+  type EditorState,
+  type VideoRow,
+} from "@/lib/db"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
 
+const serveUrl = (pathname: string) => `/api/file?pathname=${encodeURIComponent(pathname)}`
+
+// Recover the raw blob pathname from a stored serve URL (/api/file?pathname=X).
+function pathnameFromServeUrl(url: string | null): string | null {
+  if (!url) return null
+  return new URLSearchParams(url.split("?")[1] ?? "").get("pathname")
+}
+
+interface UpdateProjectBody {
+  title?: string
+  durationSeconds?: number
+  sizeBytes?: number
+  pathname: string
+  thumbnailPathname?: string | null
+  screenPathname?: string | null
+  cameraPathname?: string | null
+  audioPathname?: string | null
+  editorState?: EditorState | null
+}
+
+// Update project metadata after the browser has uploaded any new/changed media
+// directly to Blob. Old, now-orphaned blobs are removed afterward.
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
   try {
-    const { rows } = await pool.query<VideoRow>(
-      `SELECT pathname, thumbnail_url FROM videos WHERE id = $1`,
+    await ensureVideosSchema()
+    const { rows: existingRows } = await pool.query<VideoRow>(
+      `SELECT ${SELECT_COLUMNS} FROM videos WHERE id = $1`,
       [id],
     )
-    if (rows.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    if (existingRows.length === 0) return NextResponse.json({ error: "Not found" }, { status: 404 })
+    const existing = existingRows[0]
 
-    const form = await request.formData()
-    const video = form.get("video")
-    const thumbnail = form.get("thumbnail")
-    const title = (form.get("title") as string | null)?.trim() || "Untitled recording"
-    const durationSeconds = Number(form.get("durationSeconds")) || 0
-    if (!(video instanceof Blob) || video.size === 0) {
-      return NextResponse.json({ error: "Missing video file" }, { status: 400 })
+    const body = (await request.json()) as UpdateProjectBody
+    const title = body.title?.trim() || "Untitled recording"
+    const durationSeconds = Number(body.durationSeconds) || 0
+    const sizeBytes = Number(body.sizeBytes) || existing.size_bytes || 0
+    if (!body.pathname) {
+      return NextResponse.json({ error: "Missing uploaded video pathname" }, { status: 400 })
     }
 
-    const stamp = Date.now()
-    const safeTitle = title.replace(/[^\w-]+/g, "-").toLowerCase().replace(/^-+|-+$/g, "") || "recording"
-    const serveUrl = (pathname: string) => `/api/file?pathname=${encodeURIComponent(pathname)}`
-    const videoBlob = await put(`videos/${safeTitle}-${stamp}.mp4`, video, {
-      access: "private",
-      contentType: video.type || "video/mp4",
-      addRandomSuffix: true,
-    })
-
-    let thumbnailUrl: string | null = rows[0].thumbnail_url
-    let newThumbnailPath: string | null = null
-    if (thumbnail instanceof Blob && thumbnail.size > 0) {
-      const thumbnailBlob = await put(`thumbnails/${safeTitle}-${stamp}.jpg`, thumbnail, {
-        access: "private",
-        contentType: "image/jpeg",
-        addRandomSuffix: true,
-      })
-      newThumbnailPath = thumbnailBlob.pathname
-      thumbnailUrl = serveUrl(thumbnailBlob.pathname)
-    }
+    const isProject = Boolean(body.screenPathname && body.editorState)
+    const thumbnailUrl = body.thumbnailPathname
+      ? serveUrl(body.thumbnailPathname)
+      : existing.thumbnail_url
 
     const { rows: updated } = await pool.query<VideoRow>(
       `UPDATE videos
-       SET title = $1, pathname = $2, url = $3, thumbnail_url = $4,
-           duration_seconds = $5, size_bytes = $6
-       WHERE id = $7
-       RETURNING id, title, pathname, url, thumbnail_url, duration_seconds, size_bytes, created_at`,
-      [title, videoBlob.pathname, serveUrl(videoBlob.pathname), thumbnailUrl, durationSeconds, video.size, id],
+         SET title = $1, pathname = $2, url = $3, thumbnail_url = $4,
+             duration_seconds = $5, size_bytes = $6, kind = $7,
+             screen_pathname = $8, camera_pathname = $9, audio_pathname = $10,
+             editor_state = $11
+       WHERE id = $12
+       RETURNING ${SELECT_COLUMNS}`,
+      [
+        title,
+        body.pathname,
+        serveUrl(body.pathname),
+        thumbnailUrl,
+        durationSeconds,
+        sizeBytes,
+        isProject ? "project" : "legacy",
+        body.screenPathname ?? null,
+        body.cameraPathname ?? null,
+        body.audioPathname ?? null,
+        body.editorState ? JSON.stringify(body.editorState) : null,
+        id,
+      ],
     )
 
-    const previousThumbnailPath = rows[0].thumbnail_url
-      ? new URLSearchParams(rows[0].thumbnail_url.split("?")[1] ?? "").get("pathname")
-      : null
-    const obsolete = [rows[0].pathname, newThumbnailPath ? previousThumbnailPath : null].filter(Boolean) as string[]
-    if (obsolete.length) await del(obsolete).catch((error) => console.error("[v0] old blob cleanup failed:", error))
+    // Clean up blobs that this update replaced.
+    const newPaths = new Set(
+      [
+        body.pathname,
+        body.thumbnailPathname,
+        body.screenPathname,
+        body.cameraPathname,
+        body.audioPathname,
+      ].filter(Boolean) as string[],
+    )
+    const obsolete = [
+      existing.pathname,
+      pathnameFromServeUrl(existing.thumbnail_url),
+      existing.screen_pathname,
+      existing.camera_pathname,
+      existing.audio_pathname,
+    ].filter((p): p is string => Boolean(p) && !newPaths.has(p as string))
+    if (obsolete.length) {
+      await del(obsolete).catch((error) => console.error("[v0] old blob cleanup failed:", error))
+    }
 
-    return NextResponse.json({ video: updated[0] })
+    return NextResponse.json({ video: rowToSavedVideo(updated[0]) })
   } catch (error) {
     console.error("[v0] update video failed:", error)
     return NextResponse.json({ error: "Failed to update video" }, { status: 500 })
   }
 }
 
-// Delete a saved video: remove the blob files, then the DB row.
+// Delete a saved video: remove every associated blob, then the DB row.
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
   try {
+    await ensureVideosSchema()
     const { rows } = await pool.query<VideoRow>(
-      `SELECT pathname, thumbnail_url FROM videos WHERE id = $1`,
+      `SELECT ${SELECT_COLUMNS} FROM videos WHERE id = $1`,
       [id],
     )
     if (rows.length === 0) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
     }
 
-    // url/thumbnail_url hold serve URLs (/api/file?pathname=X); recover the raw
-    // blob pathnames so del() targets the actual files.
-    const { pathname, thumbnail_url } = rows[0]
-    const thumbPathname = thumbnail_url
-      ? new URLSearchParams(thumbnail_url.split("?")[1] ?? "").get("pathname")
-      : null
-    const toDelete = [pathname, thumbPathname].filter(Boolean) as string[]
+    const row = rows[0]
+    const toDelete = [
+      row.pathname,
+      pathnameFromServeUrl(row.thumbnail_url),
+      row.screen_pathname,
+      row.camera_pathname,
+      row.audio_pathname,
+    ].filter((p): p is string => Boolean(p))
     if (toDelete.length > 0) {
       await del(toDelete).catch((e) => console.error("[v0] blob del failed:", e))
     }

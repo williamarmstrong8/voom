@@ -2,6 +2,30 @@
 
 export type StudioMode = "dashboard" | "setup" | "recording" | "viewing" | "editing"
 
+/**
+ * Persisted editor state for an editable project. Reopening a saved video
+ * rehydrates from this, so camera shape/layout, trim, segments, captions, and
+ * title cards all stay editable without ever re-encoding the originals.
+ */
+export interface EditorState {
+  version: 1
+  duration: number
+  segments: { id: string; sourceStart: number; sourceEnd: number }[]
+  camera: {
+    visible: boolean
+    layout: CameraLayout
+  }
+  captions: { id: string; start: number; end: number; text: string }[]
+  titleCards: { id: string; start: number; end: number; title: string; subtitle: string }[]
+  brandKit: {
+    name: string
+    primaryColor: string
+    fontFamily: "geist" | "serif" | "mono"
+    logoUrl: string | null
+  }
+  mimeTypes: { screen: string; camera: string | null; audio: string | null }
+}
+
 /** A saved video record returned from the library API. */
 export interface SavedVideo {
   id: string
@@ -12,6 +36,14 @@ export interface SavedVideo {
   duration_seconds: number
   size_bytes: number
   created_at: string
+  /** 'project' rows are editable (raw tracks + editor_state); 'legacy' are flattened. */
+  kind: "project" | "legacy"
+  /** Serve URLs for the raw editable source tracks (project rows only). */
+  screen_url: string | null
+  camera_url: string | null
+  audio_url: string | null
+  /** Restored editor state for project rows. */
+  editor_state: EditorState | null
 }
 
 /** A recorded media track (screen or camera) with its object URL and blob. */

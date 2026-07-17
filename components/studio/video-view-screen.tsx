@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowLeft, Download, Pencil, Video as VideoIcon } from "lucide-react"
+import { ArrowLeft, Download, Loader2, Pencil, Video as VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { SavedVideo } from "@/lib/studio-types"
 
@@ -27,11 +27,24 @@ export function VideoViewScreen({
   video,
   onBack,
   onEdit,
+  editable,
+  editLoading = false,
+  editError = null,
 }: {
   video: SavedVideo
   onBack: () => void
   onEdit: () => void
+  /** Only editable projects (raw tracks + editor_state) can reopen the editor. */
+  editable: boolean
+  editLoading?: boolean
+  editError?: string | null
 }) {
+  // Projects play their raw screen track (no flattened file exists until export);
+  // legacy rows play their stored flattened file.
+  const playbackUrl = video.kind === "project" ? video.screen_url : video.url
+  const downloadUrl = playbackUrl ?? video.url
+  const downloadExt = downloadUrl && downloadUrl.includes("mp4") ? "mp4" : "webm"
+
   return (
     <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -47,36 +60,41 @@ export function VideoViewScreen({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <a
-            href={video.url}
-            download={`${video.title}.mp4`}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-button-14 text-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Download className="size-4" />
-            Download
-          </a>
-          <Button onClick={onEdit} className="gap-2">
-            <Pencil className="size-4" />
-            Edit video
-          </Button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <a
+              href={downloadUrl ?? undefined}
+              download={`${video.title}.${downloadExt}`}
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-button-14 text-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Download className="size-4" />
+              Download
+            </a>
+            {editable && (
+              <Button onClick={onEdit} disabled={editLoading} className="gap-2">
+                {editLoading ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
+                {editLoading ? "Opening…" : "Edit video"}
+              </Button>
+            )}
+          </div>
+          {editError && <p className="text-copy-13 text-destructive">{editError}</p>}
         </div>
       </header>
 
-      <section className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-border bg-black shadow-sm" aria-label="Video player">
-        {video.url ? (
+      <section className="flex flex-1 items-center justify-center overflow-hidden" aria-label="Video player">
+        {playbackUrl ? (
           <video
-            src={video.url}
+            src={playbackUrl}
             poster={video.thumbnail_url ?? undefined}
             controls
             playsInline
             preload="metadata"
-            className="max-h-[calc(100svh-15rem)] w-full object-contain"
+            className="max-h-[calc(100svh-15rem)] h-auto w-auto max-w-full rounded-lg border border-border bg-black object-contain shadow-sm"
           >
             <track kind="captions" />
           </video>
         ) : (
-          <div className="flex min-h-96 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <div className="flex min-h-96 w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-muted-foreground shadow-sm">
             <VideoIcon className="size-8" />
             <p className="text-copy-14">This video is unavailable.</p>
           </div>
