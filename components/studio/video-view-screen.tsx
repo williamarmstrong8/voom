@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { ArrowLeft, Download, Loader2, Pencil, Video as VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { SavedVideo } from "@/lib/studio-types"
@@ -48,6 +49,7 @@ export function VideoViewScreen({
   // (CDN) redirect target.
   const downloadUrl = baseUrl ? `${baseUrl}&download=1` : undefined
   const downloadExt = baseUrl && baseUrl.includes("mp4") ? "mp4" : "webm"
+  const [videoReady, setVideoReady] = useState(false)
 
   return (
     <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
@@ -87,16 +89,23 @@ export function VideoViewScreen({
 
       <section className="flex flex-1 items-center justify-center overflow-hidden" aria-label="Video player">
         {playbackUrl ? (
-          <video
-            src={playbackUrl}
-            poster={video.thumbnail_url ?? undefined}
-            controls
-            playsInline
-            preload="metadata"
-            className="max-h-[calc(100svh-15rem)] h-auto w-auto max-w-full rounded-lg border border-border bg-black object-contain shadow-sm"
-          >
-            <track kind="captions" />
-          </video>
+          <div className="relative aspect-video w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm">
+            {!videoReady && (
+              <div className="absolute inset-0 flex items-center justify-center bg-secondary" aria-label="Loading video">
+                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            <video
+              src={playbackUrl}
+              controls={videoReady}
+              playsInline
+              preload="auto"
+              onLoadedData={() => setVideoReady(true)}
+              className={`h-full w-full object-contain transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
+            >
+              <track kind="captions" />
+            </video>
+          </div>
         ) : (
           <div className="flex min-h-96 w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-muted-foreground shadow-sm">
             <VideoIcon className="size-8" />
