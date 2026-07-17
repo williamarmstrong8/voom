@@ -168,7 +168,7 @@ export function EditorScreen({
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>([])
   const [brandKit, setBrandKit] = useState<BrandKit>(DEFAULT_BRAND_KIT)
-  const [activeTool, setActiveTool] = useState<"cleanup" | "captions" | "brand" | "camera" | "export">("cleanup")
+  const [activeTool, setActiveTool] = useState<"captions" | "brand" | "camera" | "export">("captions")
 
   const [layout, setLayout] = useState<CameraLayout>(initialLayout)
   const [cameraVisible, setCameraVisible] = useState(hasCamera)
@@ -550,6 +550,15 @@ export function EditorScreen({
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-1 rounded-md border border-border bg-card p-1.5">
+            <Button size="sm" variant="ghost" onClick={splitAtPlayhead} className="gap-2"><Scissors className="size-3.5" />Split</Button>
+            <Button size="sm" variant="ghost" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2"><Trash2 className="size-3.5" />Delete</Button>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <Button size="icon" variant="ghost" onClick={undo} disabled={!history.length} aria-label="Undo"><Undo2 className="size-4" /></Button>
+            <Button size="icon" variant="ghost" onClick={redo} disabled={!future.length} aria-label="Redo"><Redo2 className="size-4" /></Button>
+            <span className="ml-auto text-xs text-muted-foreground">Select a clip to trim or delete it</span>
+          </div>
+
           <Timeline
             sourceDuration={duration}
             currentTime={currentTime}
@@ -568,9 +577,8 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
-          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-5" : "grid-cols-4")}>
+          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-4" : "grid-cols-3")}>
             {([
-              ["cleanup", Scissors, "Cut"],
               ["captions", Captions, "CC"],
               ["brand", Film, "Brand"],
               ...(hasCamera ? [["camera", Video, "Camera"]] as const : []),
@@ -582,19 +590,6 @@ export function EditorScreen({
               </button>
             ))}
           </div>
-
-          {activeTool === "cleanup" && (
-            <div className="rounded-md border border-border bg-card p-4">
-              <p className="text-sm font-medium">Fast cleanup</p>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Place the playhead, split, then select a clip on the timeline to remove it. Every cut can be undone.</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button size="sm" variant="secondary" onClick={splitAtPlayhead} className="gap-2"><Scissors className="size-3.5" />Split</Button>
-                <Button size="sm" variant="secondary" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2"><Trash2 className="size-3.5" />Delete</Button>
-                <Button size="sm" variant="ghost" onClick={undo} disabled={!history.length} className="gap-2"><Undo2 className="size-3.5" />Undo</Button>
-                <Button size="sm" variant="ghost" onClick={redo} disabled={!future.length} className="gap-2"><Redo2 className="size-3.5" />Redo</Button>
-              </div>
-            </div>
-          )}
 
           {activeTool === "captions" && (
             <div className="rounded-md border border-border bg-card p-4">

@@ -133,7 +133,7 @@ export function Timeline({
       </div>
       <div className="overflow-x-auto pb-2">
         <div ref={trackRef} className="relative min-w-full touch-none select-none" style={{ width: contentWidth }}>
-          <div className="relative h-7 cursor-ew-resize border-b border-border" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
+          <div className="relative h-8 cursor-ew-resize border-b border-border" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
             {ticks.map((time) => {
               const major = Math.abs(time / tickStep - Math.round(time / tickStep)) < 0.01
               return <div key={time} className={cn("pointer-events-none absolute bottom-0 border-l border-border", major ? "h-4" : "h-2")} style={{ left: `${(time / projectDuration) * 100}%` }}>{major && <span className="absolute bottom-3 left-1 text-[10px] tabular-nums text-muted-foreground">{fmt(time)}</span>}</div>
@@ -150,18 +150,22 @@ export function Timeline({
                     {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
                   </div>
                   <span className="pointer-events-none absolute bottom-1 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">Clip {index + 1}</span>
-                  {selected && (["start", "end"] as const).map((edge) => (
-                    <button key={edge} type="button" aria-label={`Trim clip ${index + 1} ${edge}`} className={cn("absolute inset-y-0 z-20 w-5 cursor-ew-resize touch-none", edge === "start" ? "-left-2" : "-right-2")} onPointerDown={(event) => beginEdgeDrag(segment.id, edge, event)} onPointerMove={(event) => moveEdge(segment.id, edge, event)} onPointerUp={endEdgeDrag} onPointerCancel={endEdgeDrag}>
-                      <span className={cn("absolute top-1/2 h-10 w-2 -translate-y-1/2 border-y-2 border-primary bg-background/80", edge === "start" ? "left-1 rounded-l-sm border-l-2" : "right-1 rounded-r-sm border-r-2")} />
+                  {(["start", "end"] as const).map((edge) => (
+                    <button key={edge} type="button" aria-label={`Trim clip ${index + 1} ${edge}`} className={cn("absolute inset-y-0 z-20 w-7 cursor-ew-resize touch-none opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100", selected && "opacity-100", edge === "start" ? "-left-3" : "-right-3")} onPointerDown={(event) => beginEdgeDrag(segment.id, edge, event)} onPointerMove={(event) => moveEdge(segment.id, edge, event)} onPointerUp={endEdgeDrag} onPointerCancel={endEdgeDrag}>
+                      <span className={cn("absolute top-1/2 flex h-12 w-4 -translate-y-1/2 items-center justify-center rounded-md bg-primary shadow-md", edge === "start" ? "left-1" : "right-1")}>
+                        <span className="h-6 w-0.5 rounded-full bg-primary-foreground" />
+                      </span>
                     </button>
                   ))}
                 </div>
               )
             })}
-            <div className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-foreground" style={{ left: `${playhead}%` }}><div className="absolute -top-1 left-1/2 size-2 -translate-x-1/2 rounded-full bg-foreground" /></div>
           </div>
 
           {captions.length > 0 && <div className="relative mt-2 h-7 cursor-ew-resize rounded-sm bg-secondary/50" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={() => setScrubbing(false)}>{captions.map((caption) => { const start = sourceToProject(caption.start); const end = sourceToProject(caption.end); return <div key={caption.id} className="pointer-events-none absolute inset-y-1 overflow-hidden rounded-sm bg-blue-500/30 px-1 text-[10px] leading-5" style={{ left: `${(start / projectDuration) * 100}%`, width: `${Math.max(1, ((end - start) / projectDuration) * 100)}%` }}>{caption.text}</div> })}</div>}
+          <div className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary" style={{ left: `${playhead}%` }}>
+            <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 border-x-[6px] border-t-[9px] border-x-transparent border-t-primary" />
+          </div>
         </div>
       </div>
     </section>
