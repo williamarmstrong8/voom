@@ -127,8 +127,16 @@ export function Timeline({
               const width = ((segment.sourceEnd - segment.sourceStart) / displayDuration) * 100
               return (
                 <div key={segment.id} data-clip="true" className={cn("group absolute inset-y-0 cursor-pointer overflow-visible rounded-md border bg-secondary/90 transition-colors", selected ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-foreground/40")} style={{ left: `${left}%`, width: `${width}%` }} onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setScrubbing(true); onSelectSegment(segment.id); scrub(event.clientX) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
-                  <div className="pointer-events-none absolute inset-0 flex overflow-hidden rounded-[inherit] opacity-70">
-                    {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
+                  <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
+                    <div
+                      className="absolute inset-y-0 flex opacity-70"
+                      style={{
+                        left: `${-(segment.sourceStart / (segment.sourceEnd - segment.sourceStart)) * 100}%`,
+                        width: `${(displayDuration / (segment.sourceEnd - segment.sourceStart)) * 100}%`,
+                      }}
+                    >
+                      {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
+                    </div>
                   </div>
                   <span className="pointer-events-none absolute bottom-1 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">Clip {index + 1}</span>
                   {(["start", "end"] as const).map((edge) => (
