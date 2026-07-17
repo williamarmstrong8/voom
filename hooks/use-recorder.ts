@@ -206,8 +206,12 @@ export function useRecorder(): UseRecorder {
     }
     screenChanRef.current = { recorder: screenRecorder, chunks: screenChunks, stream: display }
 
+    // Record the camera as video-only so the microphone is never baked into
+    // the camera layer. That keeps the mic independent of whether the camera
+    // overlay is visible, so audio survives even for screen-only recordings.
     if (cam && cam.getVideoTracks().length > 0) {
-      const cameraRecorder = new MediaRecorder(cam, {
+      const cameraVideoStream = new MediaStream(cam.getVideoTracks())
+      const cameraRecorder = new MediaRecorder(cameraVideoStream, {
         mimeType,
         videoBitsPerSecond: 6_000_000,
       })
@@ -215,14 +219,17 @@ export function useRecorder(): UseRecorder {
       cameraRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) cameraChunks.push(e.data)
       }
-      cameraChanRef.current = { recorder: cameraRecorder, chunks: cameraChunks, stream: cam }
+      cameraChanRef.current = { recorder: cameraRecorder, chunks: cameraChunks, stream: cameraVideoStream }
     } else {
       cameraChanRef.current = null
     }
 
-    const captionAudioTrack = cam?.getAudioTracks()[0] ?? display.getAudioTracks()[0]
-    if (captionAudioTrack) {
-      const audioStream = new MediaStream([captionAudioTrack])
+    // Dedicated microphone track. It's the single source of narration audio for
+    // both transcription and the exported mix, regardless of the camera layer.
+    // (Shared tab/system audio still rides along on the screen recording.)
+    const micTrack = cam?.getAudioTracks()[0]
+    if (micTrack) {
+      const audioStream = new MediaStream([micTrack])
       const audioRecorder = new MediaRecorder(audioStream, {
         mimeType: pickAudioMimeType(),
         audioBitsPerSecond: 128_000,
