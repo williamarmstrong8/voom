@@ -6,6 +6,7 @@ import {
   Check,
   Circle,
   Download,
+  Expand,
   Film,
   Layers,
   Loader2,
@@ -14,11 +15,15 @@ import {
   RectangleHorizontal,
   Redo2,
   Save,
+  RotateCcw,
+  RotateCw,
   Scissors,
   Square,
   Trash2,
   Undo2,
   Video,
+  Volume2,
+  VolumeX,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CameraOverlay } from "@/components/studio/camera-overlay"
@@ -58,6 +63,13 @@ interface EditorScreenProps {
 }
 
 type SavePhase = "idle" | "processing" | "uploading" | "done" | "error"
+
+function formatTransportTime(time: number) {
+  const safe = Math.max(0, time)
+  const minutes = Math.floor(safe / 60)
+  const seconds = Math.floor(safe % 60)
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`
+}
 
 function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement("a")
@@ -130,6 +142,7 @@ export function EditorScreen({
   const hasCamera = !!recording.camera
   const screenRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<HTMLVideoElement>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef(0)
 
   const [title, setTitle] = useState(sourceVideo?.title ?? "")
@@ -140,6 +153,8 @@ export function EditorScreen({
   const [trim, setTrim] = useState<TrimRange>({ start: 0, end: recording.duration || 0 })
   const [currentTime, setCurrentTime] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const [playbackRate, setPlaybackRate] = useState(1)
   const [aspect, setAspect] = useState(16 / 9)
   const [frames, setFrames] = useState<string[]>([])
   const framesForUrl = useRef<string | null>(null)
@@ -194,6 +209,29 @@ export function EditorScreen({
     }
   }, [recording.screen.url, duration])
 
+  const editedDuration = useMemo(() => segments.reduce((total, segment) => total + segment.sourceEnd - segment.sourceStart, 0), [segments])
+
+  const sourceToProjectTime = useCallback((sourceTime: number) => {
+    let elapsed = 0
+    for (const segment of segments) {
+      if (sourceTime >= segment.sourceStart && sourceTime <= segment.sourceEnd) return elapsed + sourceTime - segment.sourceStart
+      if (sourceTime < segment.sourceStart) return elapsed
+      elapsed += segment.sourceEnd - segment.sourceStart
+    }
+    return elapsed
+  }, [segments])
+
+  const projectToSourceTime = useCallback((projectTime: number) => {
+    let elapsed = 0
+    const bounded = Math.max(0, Math.min(editedDuration, projectTime))
+    for (const segment of segments) {
+      const length = segment.sourceEnd - segment.sourceStart
+      if (bounded <= elapsed + length) return segment.sourceStart + bounded - elapsed
+      elapsed += length
+    }
+    return segments.at(-1)?.sourceEnd ?? 0
+  }, [editedDuration, segments])
+
   const stopLoop = useCallback(() => {
     cancelAnimationFrame(rafRef.current)
   }, [])
@@ -227,16 +265,19 @@ export function EditorScreen({
 
   const play = useCallback(() => {
     const v = screenRef.current
-    if (!v) return
-    if (v.currentTime >= trim.end - 0.05) {
-      v.currentTime = trim.start
-      if (cameraRef.current) cameraRef.current.currentTime = trim.start
+    if (!v || !segments.length) return
+    const retained = segments.some((segment) => v.currentTime >= segment.sourceStart && v.currentTime < segment.sourceEnd - 0.05)
+    if (!retained) {
+      v.currentTime = segments[0].sourceStart
+      if (cameraRef.current) cameraRef.current.currentTime = segments[0].sourceStart
     }
+    v.playbackRate = playbackRate
+    if (cameraRef.current) cameraRef.current.playbackRate = playbackRate
     void v.play()
     void cameraRef.current?.play()
     setPlaying(true)
     rafRef.current = requestAnimationFrame(tick)
-  }, [trim.start, trim.end, tick])
+  }, [playbackRate, segments, tick])
 
   const seek = useCallback((time: number) => {
     if (screenRef.current) screenRef.current.currentTime = time
@@ -244,25 +285,15 @@ export function EditorScreen({
     setCurrentTime(time)
   }, [])
 
-  const updateTrim = useCallback((next: TrimRange) => {
-    setTrim(next)
-    setSegments((current) => {
-      if (!current.length) return current
-      return current
-        .map((segment, index) => ({
-          ...segment,
-          sourceStart: index === 0 ? next.start : segment.sourceStart,
-          sourceEnd: index === current.length - 1 ? next.end : segment.sourceEnd,
-        }))
-        .filter((segment) => segment.sourceEnd - segment.sourceStart >= 0.01)
-    })
-  }, [])
+  const skipBy = useCallback((seconds: number) => {
+    seek(projectToSourceTime(sourceToProjectTime(currentTime) + seconds))
+  }, [currentTime, projectToSourceTime, seek, sourceToProjectTime])
 
-  const commitSegments = useCallback((next: EditorSegment[]) => {
+  const commitSegments = useCallback((next: EditorSegment[], selectedId: string | null = null) => {
     setHistory((items) => [...items.slice(-49), segments])
     setFuture([])
     setSegments(next)
-    setSelectedSegmentId(next[0]?.id ?? null)
+    setSelectedSegmentId(selectedId)
   }, [segments])
 
   const splitAtPlayhead = useCallback(() => {
@@ -271,13 +302,22 @@ export function EditorScreen({
     commitSegments(segments.flatMap((segment) => segment.id === target.id ? [
       { ...segment, id: crypto.randomUUID(), sourceEnd: currentTime },
       { ...segment, id: crypto.randomUUID(), sourceStart: currentTime },
-    ] : [segment]))
+    ] : [segment]), null)
   }, [commitSegments, currentTime, segments])
 
   const deleteSelected = useCallback(() => {
     if (!selectedSegmentId || segments.length <= 1) return
-    commitSegments(segments.filter((segment) => segment.id !== selectedSegmentId))
-  }, [commitSegments, segments, selectedSegmentId])
+    const index = segments.findIndex((segment) => segment.id === selectedSegmentId)
+    const next = segments.filter((segment) => segment.id !== selectedSegmentId)
+    const neighbor = next[Math.min(index, next.length - 1)]
+    commitSegments(next, neighbor?.id ?? null)
+    if (neighbor) seek(neighbor.sourceStart)
+  }, [commitSegments, seek, segments, selectedSegmentId])
+
+  const commitSegmentTrim = useCallback((previous: EditorSegment[]) => {
+    setHistory((items) => [...items.slice(-49), previous])
+    setFuture([])
+  }, [])
 
   const undo = useCallback(() => {
     const previous = history.at(-1)
@@ -459,7 +499,8 @@ export function EditorScreen({
         {/* Preview + timeline */}
         <div className="flex flex-col gap-4">
           <div
-            className="relative w-full overflow-hidden bg-black"
+            ref={previewRef}
+            className="group relative w-full overflow-hidden bg-black"
             style={{ aspectRatio: String(aspect) }}
           >
             <video
@@ -467,6 +508,7 @@ export function EditorScreen({
               src={recording.screen.url}
               onLoadedMetadata={onScreenMeta}
               onClick={() => (playing ? pause() : play())}
+              onVolumeChange={(event) => setVolume(event.currentTarget.muted ? 0 : event.currentTarget.volume)}
               playsInline
               className="h-full w-full object-fill"
             />
@@ -489,42 +531,39 @@ export function EditorScreen({
               </div>
             )}
             {activeCaption && (
-              <div className="pointer-events-none absolute inset-x-8 bottom-5 z-30 flex justify-center">
+              <div className="pointer-events-none absolute inset-x-8 bottom-16 z-30 flex justify-center">
                 <p className="max-w-3xl rounded-md bg-black/80 px-4 py-2 text-center text-lg font-semibold text-white shadow-lg">
                   {activeCaption.text}
                 </p>
               </div>
             )}
-          </div>
-
-          {/* Transport */}
-          <div className="flex items-center gap-3">
-            <Button
-              size="icon"
-              variant="secondary"
-              onClick={() => (playing ? pause() : play())}
-              aria-label={playing ? "Pause" : "Play"}
-            >
-              {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
-            </Button>
-            <div className="flex-1">
-              <Timeline
-                duration={duration}
-                trim={trim}
-                currentTime={currentTime}
-                frames={frames}
-                segments={segments}
-                captions={captions}
-                titleCards={titleCards}
-                selectedSegmentId={selectedSegmentId}
-                zoom={timelineZoom}
-                onZoomChange={setTimelineZoom}
-                onSelectSegment={setSelectedSegmentId}
-                onTrimChange={updateTrim}
-                onSeek={seek}
-              />
+            <div className="absolute inset-x-0 bottom-0 z-40 flex items-center gap-1 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3 pb-3 pt-8 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              <button type="button" onClick={() => (playing ? pause() : play())} className="rounded-sm p-2 hover:bg-white/15" aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}</button>
+              <button type="button" onClick={() => skipBy(-10)} className="rounded-sm p-2 hover:bg-white/15" aria-label="Back 10 seconds"><RotateCcw className="size-4" /></button>
+              <button type="button" onClick={() => skipBy(10)} className="rounded-sm p-2 hover:bg-white/15" aria-label="Forward 10 seconds"><RotateCw className="size-4" /></button>
+              <button type="button" onClick={() => { const video = screenRef.current; if (!video) return; video.muted = !video.muted; setVolume(video.muted ? 0 : video.volume) }} className="rounded-sm p-2 hover:bg-white/15" aria-label={volume === 0 ? "Unmute" : "Mute"}>{volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}</button>
+              <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(event) => { const next = Number(event.target.value); setVolume(next); if (screenRef.current) { screenRef.current.volume = next; screenRef.current.muted = next === 0 } }} aria-label="Volume" className="w-20 accent-white" />
+              <span className="ml-2 text-xs tabular-nums text-white/80">{formatTransportTime(sourceToProjectTime(currentTime))} / {formatTransportTime(editedDuration)}</span>
+              <div className="flex-1" />
+              <select value={playbackRate} onChange={(event) => { const next = Number(event.target.value); setPlaybackRate(next); if (screenRef.current) screenRef.current.playbackRate = next; if (cameraRef.current) cameraRef.current.playbackRate = next }} aria-label="Playback speed" className="rounded-sm bg-white/10 px-2 py-1.5 text-xs text-white outline-none"><option className="text-black" value="0.5">0.5×</option><option className="text-black" value="1">1×</option><option className="text-black" value="1.5">1.5×</option><option className="text-black" value="2">2×</option></select>
+              <button type="button" onClick={() => void previewRef.current?.requestFullscreen()} className="rounded-sm p-2 hover:bg-white/15" aria-label="Fullscreen"><Expand className="size-4" /></button>
             </div>
           </div>
+
+          <Timeline
+            sourceDuration={duration}
+            currentTime={currentTime}
+            frames={frames}
+            segments={segments}
+            captions={captions}
+            selectedSegmentId={selectedSegmentId}
+            zoom={timelineZoom}
+            onZoomChange={setTimelineZoom}
+            onSelectSegment={setSelectedSegmentId}
+            onSegmentsChange={setSegments}
+            onSegmentsCommit={commitSegmentTrim}
+            onSeek={seek}
+          />
         </div>
 
         {/* Controls */}
