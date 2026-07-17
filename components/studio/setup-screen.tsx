@@ -59,7 +59,6 @@ interface SetupScreenProps {
   onFontSize: (v: number) => void
   micSupported: boolean
   extensionAvailable: boolean
-  extensionVersion: string | null
   pipOpen: boolean
   pipContainer: HTMLElement | null
   onStart: () => void
@@ -91,7 +90,6 @@ export function SetupScreen({
   onFontSize,
   micSupported,
   extensionAvailable,
-  extensionVersion,
   pipOpen,
   pipContainer,
   onStart,
@@ -458,19 +456,6 @@ export function SetupScreen({
                 )}
               </div>
             )}
-          </div>
-
-          <div className="flex items-start gap-2 rounded-sm border border-border bg-secondary/40 p-3 text-xs leading-relaxed text-muted-foreground">
-            {extensionAvailable ? (
-              <Check className="mt-0.5 size-3.5 shrink-0 text-foreground" />
-            ) : (
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-foreground" />
-            )}
-            <p>
-              {extensionAvailable
-                ? `Voom extension ${extensionVersion ? `v${extensionVersion} ` : ""}is ready. Camera, controls, and teleprompter will use the private custom overlay.`
-                : "Voom extension not detected. Recording will use the browser Picture-in-Picture fallback; install the extension for custom private cross-tab overlays."}
-            </p>
           </div>
 
           <Button

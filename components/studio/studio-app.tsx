@@ -454,7 +454,6 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
           onFontSize={setFontSize}
           micSupported={supported}
           extensionAvailable={extension.available}
-          extensionVersion={extension.version}
           pipOpen={pip.isOpen}
           pipContainer={pip.container}
           onStart={startRecording}
