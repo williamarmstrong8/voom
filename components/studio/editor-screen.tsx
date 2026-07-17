@@ -442,6 +442,7 @@ export function EditorScreen({
       const url = URL.createObjectURL(output)
       setExportedUrl(url)
       setPhase("done")
+      downloadBlobUrl(url, `${title.trim() || "demo"}.${exportFormat}`)
     } catch (err) {
       console.log("[v0] export failed:", err)
       setExportError(
@@ -449,7 +450,7 @@ export function EditorScreen({
       )
       setPhase("error")
     }
-  }, [getRenderedOutput, exportedUrl, pause])
+  }, [getRenderedOutput, exportedUrl, pause, title, exportFormat])
 
   // Snapshot the current editing decisions so reopening restores everything.
   const buildEditorState = useCallback((): EditorState => {
