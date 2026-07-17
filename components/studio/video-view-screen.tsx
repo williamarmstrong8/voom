@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { ArrowLeft, Download, Loader2, Pencil, Video as VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
@@ -58,7 +58,29 @@ export function VideoViewScreen({
   const [videoReady, setVideoReady] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const ffmpeg = useFfmpeg()
+
+  const syncAudioPosition = () => {
+    const player = videoRef.current
+    const narration = audioRef.current
+    if (!player || !narration) return
+    if (Math.abs(narration.currentTime - player.currentTime) > 0.12) {
+      narration.currentTime = player.currentTime
+    }
+  }
+
+  const playNarration = () => {
+    const player = videoRef.current
+    const narration = audioRef.current
+    if (!player || !narration) return
+    narration.currentTime = player.currentTime
+    narration.playbackRate = player.playbackRate
+    narration.volume = player.volume
+    narration.muted = player.muted
+    void narration.play()
+  }
 
   const downloadMp4 = async () => {
     if (!baseUrl || downloading) return
@@ -152,15 +174,35 @@ export function VideoViewScreen({
               </div>
             )}
             <video
+              ref={videoRef}
               src={playbackUrl}
               controls={videoReady}
               playsInline
               preload="auto"
               onLoadedData={() => setVideoReady(true)}
+              onPlay={playNarration}
+              onPause={() => audioRef.current?.pause()}
+              onEnded={() => audioRef.current?.pause()}
+              onSeeking={syncAudioPosition}
+              onTimeUpdate={syncAudioPosition}
+              onRateChange={() => {
+                if (audioRef.current && videoRef.current) {
+                  audioRef.current.playbackRate = videoRef.current.playbackRate
+                }
+              }}
+              onVolumeChange={() => {
+                if (audioRef.current && videoRef.current) {
+                  audioRef.current.volume = videoRef.current.volume
+                  audioRef.current.muted = videoRef.current.muted
+                }
+              }}
               className={`h-full w-full object-contain transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
             >
               <track kind="captions" />
             </video>
+            {video.kind === "project" && video.audio_url && (
+              <audio ref={audioRef} src={video.audio_url} preload="auto" className="hidden" />
+            )}
           </div>
         ) : (
           <div className="flex min-h-96 w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-muted-foreground shadow-sm">
