@@ -374,6 +374,9 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
         video={selectedVideo}
         onBack={goToDashboard}
         onEdit={() => void editSavedVideo()}
+        editable={selectedVideo.kind === "project"}
+        editLoading={editLoading}
+        editError={editLoadError}
       />,
     )
   }
