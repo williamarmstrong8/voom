@@ -11,8 +11,11 @@ export async function POST(request: Request) {
     if (!(media instanceof Blob) || media.size === 0) {
       return NextResponse.json({ error: "A recording is required" }, { status: 400 })
     }
-    if (media.size > 100 * 1024 * 1024) {
-      return NextResponse.json({ error: "Recording must be smaller than 100 MB" }, { status: 413 })
+    if (media.size > 25 * 1024 * 1024) {
+      return NextResponse.json({ error: "Caption audio must be smaller than 25 MB" }, { status: 413 })
+    }
+    if (!media.type.startsWith("audio/")) {
+      return NextResponse.json({ error: "Captioning requires an audio file" }, { status: 415 })
     }
 
     const result = await transcribe({
@@ -37,6 +40,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ captions: segments.filter((segment) => segment.text) })
   } catch (error) {
     console.error("[v0] caption transcription failed:", error)
-    return NextResponse.json({ error: "Could not generate captions" }, { status: 500 })
+    const message = error instanceof Error ? error.message : ""
+    const userMessage = /audio|media|format|decode|transcript/i.test(message)
+      ? "The recording audio could not be transcribed. Try recording again with microphone or tab audio enabled."
+      : "Captioning is temporarily unavailable. Please try again."
+    return NextResponse.json({ error: userMessage }, { status: 502 })
   }
 }
