@@ -26,6 +26,8 @@ export interface RecordingResult {
   screen: RecordedTrack
   /** Camera is optional — the user can record screen only. */
   camera: RecordedTrack | null
+  /** Audio-only microphone or shared-tab track used for transcription. */
+  audio?: RecordedTrack | null
   /** Measured wall-clock duration of the recording, in seconds. */
   duration: number
 }

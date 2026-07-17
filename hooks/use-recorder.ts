@@ -3,6 +3,11 @@
 import { useCallback, useRef, useState } from "react"
 import type { RecordedTrack, RecordingResult } from "@/lib/studio-types"
 
+function pickAudioMimeType(): string {
+  const candidates = ["audio/webm;codecs=opus", "audio/webm"]
+  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "audio/webm"
+}
+
 function pickMimeType(): string {
   const candidates = [
     "video/webm;codecs=vp9,opus",
@@ -66,6 +71,7 @@ export function useRecorder(): UseRecorder {
 
   const screenChanRef = useRef<RecorderChannel | null>(null)
   const cameraChanRef = useRef<RecorderChannel | null>(null)
+  const audioChanRef = useRef<RecorderChannel | null>(null)
   const startTimeRef = useRef(0)
   const pausedAtRef = useRef<number | null>(null)
   const totalPausedRef = useRef(0)
@@ -86,6 +92,7 @@ export function useRecorder(): UseRecorder {
     camRef.current = null
     screenChanRef.current = null
     cameraChanRef.current = null
+    audioChanRef.current = null
     setScreenStream(null)
     setCameraStream(null)
     pausedAtRef.current = null
@@ -213,6 +220,22 @@ export function useRecorder(): UseRecorder {
       cameraChanRef.current = null
     }
 
+    const captionAudioTrack = cam?.getAudioTracks()[0] ?? display.getAudioTracks()[0]
+    if (captionAudioTrack) {
+      const audioStream = new MediaStream([captionAudioTrack])
+      const audioRecorder = new MediaRecorder(audioStream, {
+        mimeType: pickAudioMimeType(),
+        audioBitsPerSecond: 128_000,
+      })
+      const audioChunks: Blob[] = []
+      audioRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunks.push(event.data)
+      }
+      audioChanRef.current = { recorder: audioRecorder, chunks: audioChunks, stream: audioStream }
+    } else {
+      audioChanRef.current = null
+    }
+
     // If the user ends the share from the browser's own control, stop cleanly.
     display.getVideoTracks()[0]?.addEventListener("ended", () => {
       if (screenChanRef.current?.recorder.state === "recording") {
@@ -222,6 +245,7 @@ export function useRecorder(): UseRecorder {
 
     screenRecorder.start(200)
     cameraChanRef.current?.recorder.start(200)
+    audioChanRef.current?.recorder.start(200)
 
     startTimeRef.current = performance.now()
     pausedAtRef.current = null
@@ -240,7 +264,7 @@ export function useRecorder(): UseRecorder {
   }, [])
 
   const togglePaused = useCallback(() => {
-    const channels = [screenChanRef.current, cameraChanRef.current].filter(
+    const channels = [screenChanRef.current, cameraChanRef.current, audioChanRef.current].filter(
       (channel): channel is RecorderChannel => channel !== null,
     )
     if (channels.length === 0) return
@@ -295,12 +319,14 @@ export function useRecorder(): UseRecorder {
 
     const screen = await finalize(screenChan)
     const camera = cameraChanRef.current ? await finalize(cameraChanRef.current) : null
+    const audio = audioChanRef.current ? await finalize(audioChanRef.current) : null
 
     cleanupStreams()
     displayRef.current = null
     camRef.current = null
     screenChanRef.current = null
     cameraChanRef.current = null
+    audioChanRef.current = null
     setScreenStream(null)
     setCameraStream(null)
     pausedAtRef.current = null
@@ -308,7 +334,7 @@ export function useRecorder(): UseRecorder {
     setPaused(false)
     setStatus("idle")
 
-    return { screen, camera, duration }
+    return { screen, camera, audio, duration }
   }, [cleanupStreams])
 
   return {

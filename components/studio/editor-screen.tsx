@@ -289,10 +289,14 @@ export function EditorScreen({
     setCaptionError(null)
     try {
       const form = new FormData()
-      if (recording.camera) {
-        form.append("media", recording.camera.blob, `camera.${recording.camera.mimeType.includes("mp4") ? "mp4" : "webm"}`)
+      if (recording.audio) {
+        form.append("media", recording.audio.blob, "recording-audio.webm")
+      } else {
+        if (recording.camera) {
+          form.append("media", recording.camera.blob, `camera.${recording.camera.mimeType.includes("mp4") ? "mp4" : "webm"}`)
+        }
+        form.append("media", recording.screen.blob, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)
       }
-      form.append("media", recording.screen.blob, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)
       const response = await fetch("/api/captions", { method: "POST", body: form })
       const data = await response.json() as { captions?: CaptionCue[]; error?: string }
       if (!response.ok) throw new Error(data.error || "Caption generation failed")
@@ -304,7 +308,7 @@ export function EditorScreen({
     } finally {
       setCaptioning(false)
     }
-  }, [recording.camera, recording.screen.blob, recording.screen.mimeType])
+  }, [recording.audio, recording.camera, recording.screen.blob, recording.screen.mimeType])
 
   const activeCaption = useMemo(
     () => captions.find((caption) => currentTime >= caption.start && currentTime <= caption.end),

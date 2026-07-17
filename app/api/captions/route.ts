@@ -19,13 +19,8 @@ export async function POST(request: Request) {
     for (const media of candidates) {
       if (media.size > 25 * 1024 * 1024) continue
       try {
-        const mediaType = media.type.replace(/^video\//, "audio/") || "audio/webm"
-        const webmAwareModel = {
-          ...model,
-          doGenerate: (options: Parameters<typeof model.doGenerate>[0]) => model.doGenerate({ ...options, mediaType }),
-        }
         result = await transcribe({
-          model: webmAwareModel,
+          model,
           audio: new Uint8Array(await media.arrayBuffer()),
         })
         if (result.text.trim()) break
