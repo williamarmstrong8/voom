@@ -1,4 +1,5 @@
-import type { SavedVideo } from "@/lib/studio-types"
+import { upload } from "@vercel/blob/client"
+import type { EditorState, SavedVideo } from "@/lib/studio-types"
 
 /** Capture a poster frame from a playing/seekable <video> as a JPEG blob. */
 export async function captureThumbnail(
@@ -37,10 +38,9 @@ export async function captureThumbnail(
 }
 
 /**
- * Capture a poster frame from a fully-rendered output blob. Loading the final
- * edited video (rather than the raw source) guarantees the cover matches what
- * the viewer actually sees first: correct trim/segment start, camera overlay,
- * title cards, and layout all baked in.
+ * Capture a poster frame from a source track (screen recording). Used for the
+ * library cover. We deliberately grab it from the raw screen track — matching
+ * the raw-preview library player — rather than rendering a composited frame.
  */
 export async function captureThumbnailFromBlob(
   blob: Blob,
@@ -55,7 +55,7 @@ export async function captureThumbnailFromBlob(
       v.playsInline = true
       v.preload = "auto"
       v.onloadeddata = () => resolve(v)
-      v.onerror = () => reject(new Error("Failed to load rendered video for thumbnail"))
+      v.onerror = () => reject(new Error("Failed to load video for thumbnail"))
     })
     // Nudge slightly past the very first frame to avoid an occasional black frame,
     // but stay within the clip.
@@ -71,51 +71,133 @@ export async function captureThumbnailFromBlob(
   }
 }
 
-interface SaveVideoInput {
-  video: Blob
+/**
+ * Upload one already-encoded media blob straight to Blob storage from the
+ * browser, bypassing the serverless request-body limit. Returns the stored
+ * pathname (private store → served later through /api/file).
+ */
+async function uploadTrack(
+  folder: string,
+  blob: Blob,
+  extension: string,
+  onProgress?: (fraction: number) => void,
+): Promise<string> {
+  const result = await upload(`${folder}/track-${Date.now()}.${extension}`, blob, {
+    access: "private",
+    handleUploadUrl: "/api/videos/upload",
+    contentType: blob.type || undefined,
+    onUploadProgress: onProgress
+      ? ({ percentage }) => onProgress(Math.max(0, Math.min(1, percentage / 100)))
+      : undefined,
+  })
+  return result.pathname
+}
+
+function extensionFor(mimeType: string, fallback: string): string {
+  if (mimeType.includes("mp4")) return "mp4"
+  if (mimeType.includes("webm")) return "webm"
+  if (mimeType.includes("ogg")) return "ogg"
+  return fallback
+}
+
+export interface SaveProjectInput {
+  screen: Blob
+  camera: Blob | null
+  audio: Blob | null
   thumbnail: Blob | null
+  mimeTypes: { screen: string; camera: string | null; audio: string | null }
   title: string
   durationSeconds: number
-  filename?: string
+  editorState: EditorState
+  /** 0-1 upload progress across all tracks. */
+  onProgress?: (fraction: number) => void
 }
 
 /**
- * Send the finished recording (and thumbnail) to the server, which uploads the
- * file to Blob with `put()` and persists its metadata. Server-side upload keeps
- * the browser from making a cross-origin request to the Blob API.
+ * Save an editable project: upload the ORIGINAL recorded tracks (screen, and
+ * optionally camera + mic) directly to Blob — no canvas, no MediaRecorder, no
+ * FFmpeg — then persist a tiny metadata row with the editor state. This is why
+ * saving is fast and lossless: it's a plain transfer of already-encoded bytes,
+ * and the full quality/color of the originals is preserved.
  */
-export async function saveVideoToLibrary({
-  video,
-  thumbnail,
-  title,
-  durationSeconds,
-  filename = "recording.mp4",
-}: SaveVideoInput): Promise<SavedVideo> {
-  const form = new FormData()
-  form.append("video", video, filename)
-  if (thumbnail) form.append("thumbnail", thumbnail, "thumbnail.jpg")
-  form.append("title", title.trim() || "Untitled recording")
-  form.append("durationSeconds", String(durationSeconds))
-
-  const res = await fetch("/api/videos", { method: "POST", body: form })
-
-  if (!res.ok) throw new Error("Failed to save video")
-  const { video: saved } = await res.json()
-  return saved as SavedVideo
+export async function saveProjectToLibrary(input: SaveProjectInput): Promise<SavedVideo> {
+  return persistProject(input, null)
 }
 
-export async function updateVideoInLibrary(
+/** Update an existing project row, re-uploading its tracks + editor state. */
+export async function updateProjectInLibrary(
   id: string,
-  input: SaveVideoInput,
+  input: SaveProjectInput,
 ): Promise<SavedVideo> {
-  const form = new FormData()
-  form.append("video", input.video, input.filename ?? "recording.mp4")
-  if (input.thumbnail) form.append("thumbnail", input.thumbnail, "thumbnail.jpg")
-  form.append("title", input.title.trim() || "Untitled recording")
-  form.append("durationSeconds", String(input.durationSeconds))
+  return persistProject(input, id)
+}
 
-  const res = await fetch(`/api/videos/${id}`, { method: "PUT", body: form })
-  if (!res.ok) throw new Error("Failed to update video")
-  const { video: saved } = await res.json()
-  return saved as SavedVideo
+async function persistProject(input: SaveProjectInput, id: string | null): Promise<SavedVideo> {
+  const { screen, camera, audio, thumbnail, mimeTypes } = input
+
+  // Weight progress across the tracks we actually upload.
+  const sizes = [screen.size, camera?.size ?? 0, audio?.size ?? 0]
+  const totalBytes = sizes.reduce((a, b) => a + b, 0) || 1
+  let baseFraction = 0
+  const trackProgress = (bytes: number) => (fraction: number) => {
+    input.onProgress?.(Math.min(1, (baseFraction + fraction * bytes) / totalBytes))
+  }
+
+  const screenPathname = await uploadTrack(
+    "videos",
+    screen,
+    extensionFor(mimeTypes.screen, "webm"),
+    trackProgress(screen.size),
+  )
+  baseFraction += screen.size
+
+  let cameraPathname: string | null = null
+  if (camera) {
+    cameraPathname = await uploadTrack(
+      "cameras",
+      camera,
+      extensionFor(mimeTypes.camera ?? "", "webm"),
+      trackProgress(camera.size),
+    )
+    baseFraction += camera.size
+  }
+
+  let audioPathname: string | null = null
+  if (audio) {
+    audioPathname = await uploadTrack(
+      "audio",
+      audio,
+      extensionFor(mimeTypes.audio ?? "", "webm"),
+      trackProgress(audio.size),
+    )
+    baseFraction += audio.size
+  }
+
+  let thumbnailPathname: string | null = null
+  if (thumbnail && thumbnail.size > 0) {
+    thumbnailPathname = await uploadTrack("thumbnails", thumbnail, "jpg")
+  }
+  input.onProgress?.(1)
+
+  const body = {
+    title: input.title.trim() || "Untitled recording",
+    durationSeconds: input.durationSeconds,
+    sizeBytes: totalBytes,
+    // Library player shows the raw screen recording (no pre-render).
+    pathname: screenPathname,
+    thumbnailPathname,
+    screenPathname,
+    cameraPathname,
+    audioPathname,
+    editorState: input.editorState,
+  }
+
+  const res = await fetch(id ? `/api/videos/${id}` : "/api/videos", {
+    method: id ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error("Failed to save project")
+  const { video } = (await res.json()) as { video: SavedVideo }
+  return video
 }

@@ -5,6 +5,7 @@ import type { BrandKit, CaptionCue, EditorSegment, TitleCard } from "@/lib/edito
 import type { CameraLayout, TrimRange } from "@/lib/studio-types"
 
 export type ExportQuality = "720p" | "1080p"
+export type ExportFormat = "mp4" | "webm"
 
 interface CompositeOptions {
   screenUrl: string
@@ -14,11 +15,45 @@ interface CompositeOptions {
   layout: CameraLayout
   trim: TrimRange
   quality: ExportQuality
+  /** Preferred container. MP4 is used natively when the browser supports it. */
+  format?: ExportFormat
   segments?: EditorSegment[]
   captions?: CaptionCue[]
   titleCards?: TitleCard[]
   brandKit?: BrandKit
   onProgress?: (fraction: number) => void
+}
+
+export interface CompositeResult {
+  blob: Blob
+  /** Actual container produced ('mp4' only when natively supported). */
+  format: ExportFormat
+}
+
+/**
+ * MediaRecorder can emit H.264/MP4 natively in modern Chromium. When true, we
+ * record straight to MP4 and skip the slow FFmpeg.wasm second pass entirely.
+ */
+export function nativeMp4RecordingSupported(): boolean {
+  if (typeof MediaRecorder === "undefined") return false
+  return (
+    MediaRecorder.isTypeSupported("video/mp4;codecs=avc1,mp4a") ||
+    MediaRecorder.isTypeSupported("video/mp4;codecs=h264,aac") ||
+    MediaRecorder.isTypeSupported("video/mp4")
+  )
+}
+
+function pickMp4MimeType(): string | null {
+  const candidates = [
+    "video/mp4;codecs=avc1.640028,mp4a.40.2",
+    "video/mp4;codecs=avc1,mp4a",
+    "video/mp4;codecs=h264,aac",
+    "video/mp4",
+  ]
+  for (const type of candidates) {
+    if (MediaRecorder.isTypeSupported(type)) return type
+  }
+  return null
 }
 
 function loadVideo(url: string): Promise<HTMLVideoElement> {
@@ -82,7 +117,7 @@ function roundedRectPath(
   ctx.closePath()
 }
 
-function pickMimeType(): string {
+function pickWebmMimeType(): string {
   const candidates = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"]
   for (const type of candidates) {
     if (MediaRecorder.isTypeSupported(type)) return type
@@ -90,19 +125,26 @@ function pickMimeType(): string {
   return "video/webm"
 }
 
-export async function compositeToWebm({
+/**
+ * Composite the screen + camera + captions/title cards onto a canvas and record
+ * the result in a single native pass to the requested container (MP4 when the
+ * browser supports it, otherwise WebM). No second transcode is performed, which
+ * preserves color and avoids the long/hanging FFmpeg.wasm step.
+ */
+export async function compositeToFile({
   screenUrl,
   cameraUrl,
   audioUrl,
   layout,
   trim,
   quality,
+  format = "webm",
   segments = [],
   captions = [],
   titleCards = [],
   brandKit,
   onProgress,
-}: CompositeOptions): Promise<Blob> {
+}: CompositeOptions): Promise<CompositeResult> {
   const screen = await loadVideo(screenUrl)
   const camera = cameraUrl ? await loadVideo(cameraUrl) : null
   // Microphone narration lives on its own track so it plays back even when the
@@ -153,9 +195,16 @@ export async function compositeToWebm({
     ...dest.stream.getAudioTracks(),
   ])
 
+  // Record straight to the requested container. MP4 is used only when the
+  // browser can encode H.264 natively; otherwise we fall back to WebM (and the
+  // caller decides whether a legacy FFmpeg pass is warranted).
+  const mp4Type = format === "mp4" ? pickMp4MimeType() : null
+  const outputType = mp4Type ?? pickWebmMimeType()
+  const producedFormat: ExportFormat = mp4Type ? "mp4" : "webm"
+
   const recorder = new MediaRecorder(mixed, {
-    mimeType: pickMimeType(),
-    videoBitsPerSecond: quality === "1080p" ? 8_000_000 : 4_500_000,
+    mimeType: outputType,
+    videoBitsPerSecond: quality === "1080p" ? 12_000_000 : 6_000_000,
   })
   const chunks: Blob[] = []
   recorder.ondataavailable = (e) => {
@@ -177,15 +226,89 @@ export async function compositeToWebm({
 
   await Promise.all([screen.play(), camera?.play(), mic?.play()].filter(Boolean) as Promise<void>[])
 
-  const done = new Promise<Blob>((resolve) => {
-    recorder.onstop = () => {
-      resolve(new Blob(chunks, { type: "video/webm" }))
+  let raf = 0
+  let settled = false
+  let lastProgressAt = performance.now()
+  // Watchdog: if playback stalls (no frame progress) for this long, bail out
+  // instead of leaving the UI stuck on "Exporting…" forever.
+  const STALL_TIMEOUT_MS = 15_000
+  let watchdog: ReturnType<typeof setInterval> | null = null
+
+  const teardown = () => {
+    cancelAnimationFrame(raf)
+    if (watchdog) {
+      clearInterval(watchdog)
+      watchdog = null
+    }
+    try {
+      screen.pause()
+      camera?.pause()
+      mic?.pause()
+    } catch {
+      // ignore
+    }
+    void audioCtx.close().catch(() => {})
+  }
+
+  // Assigned inside the promise executor below; called by the render loop when
+  // it reaches the end of the last segment.
+  let stopRecording: () => void = () => {}
+
+  const done = new Promise<CompositeResult>((resolve, reject) => {
+    const finish = () => {
+      if (settled) return
+      settled = true
+      teardown()
+      const blob = new Blob(chunks, { type: outputType })
+      if (blob.size === 0) {
+        reject(new Error("Recording produced no data"))
+        return
+      }
+      onProgress?.(1)
+      resolve({ blob, format: producedFormat })
+    }
+    const fail = (message: string) => {
+      if (settled) return
+      settled = true
+      teardown()
+      if (recorder.state !== "inactive") {
+        try {
+          recorder.stop()
+        } catch {
+          // ignore
+        }
+      }
+      reject(new Error(message))
+    }
+
+    recorder.onstop = finish
+    recorder.onerror = () => fail("The video encoder failed while exporting.")
+
+    watchdog = setInterval(() => {
+      if (settled) return
+      if (performance.now() - lastProgressAt > STALL_TIMEOUT_MS) {
+        // Force a stop so whatever was captured is still returned; if nothing
+        // was captured, finish() rejects with a clear message.
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop()
+          } catch {
+            fail("Export stalled and could not recover.")
+          }
+        } else {
+          fail("Export stalled and could not recover.")
+        }
+      }
+    }, 2_000)
+
+    // Expose a stopper the render loop can call when it reaches the end.
+    stopRecording = () => {
+      if (recorder.state !== "inactive") recorder.stop()
+      else finish()
     }
   })
 
   recorder.start(200)
-
-  let raf = 0
   const render = () => {
     ctx.fillStyle = "#000000"
     ctx.fillRect(0, 0, canvas.width, canvas.height)
@@ -265,6 +388,8 @@ export async function compositeToWebm({
     }
 
     const activeSegment = activeSegments[segmentIndex]
+    // Frame advanced — reset the stall watchdog.
+    lastProgressAt = performance.now()
     onProgress?.(Math.max(0, Math.min(1, (completedDuration + t - activeSegment.sourceStart) / span)))
 
     if (t >= activeSegment.sourceEnd || screen.ended) {
@@ -286,12 +411,9 @@ export async function compositeToWebm({
           })
         }
       } else {
-        cancelAnimationFrame(raf)
-        screen.pause()
-        camera?.pause()
-        mic?.pause()
-        if (recorder.state !== "inactive") recorder.stop()
-        void audioCtx.close()
+        // Reached the end of the last segment — stop cleanly. teardown() (run
+        // by finish()) cancels the RAF, pauses media, and closes the audio ctx.
+        stopRecording()
         return
       }
     }
@@ -300,4 +422,45 @@ export async function compositeToWebm({
   raf = requestAnimationFrame(render)
 
   return done
+}
+
+interface PassthroughCheck {
+  cameraVisible: boolean
+  hasCamera: boolean
+  captions: CaptionCue[]
+  titleCards: TitleCard[]
+  segments: EditorSegment[]
+  sourceDuration: number
+  screenMimeType: string
+  requestedFormat: ExportFormat
+}
+
+/**
+ * A render can be skipped entirely (instant, lossless export) when there are no
+ * compositing edits: no visible camera overlay, no captions/title cards, and a
+ * single segment covering the whole source — and the raw screen container
+ * already matches the requested format. In that case the original screen blob
+ * is the finished file.
+ */
+export function canPassthrough({
+  cameraVisible,
+  hasCamera,
+  captions,
+  titleCards,
+  segments,
+  sourceDuration,
+  screenMimeType,
+  requestedFormat,
+}: PassthroughCheck): boolean {
+  if ((hasCamera && cameraVisible) || captions.length > 0 || titleCards.length > 0) return false
+  const sourceIsMp4 = screenMimeType.includes("mp4")
+  const sourceIsWebm = screenMimeType.includes("webm")
+  const formatMatches =
+    (requestedFormat === "mp4" && sourceIsMp4) || (requestedFormat === "webm" && sourceIsWebm)
+  if (!formatMatches) return false
+  if (segments.length !== 1) return false
+  const [only] = segments
+  const coversStart = only.sourceStart <= 0.05
+  const coversEnd = sourceDuration <= 0 || only.sourceEnd >= sourceDuration - 0.1
+  return coversStart && coversEnd
 }

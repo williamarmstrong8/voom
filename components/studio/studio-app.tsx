@@ -53,6 +53,8 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   const [recording, setRecording] = useState<RecordingResult | null>(null)
   const [selectedVideo, setSelectedVideo] = useState<SavedVideo | null>(null)
   const [extensionActive, setExtensionActive] = useState(false)
+  const [editLoading, setEditLoading] = useState(false)
+  const [editLoadError, setEditLoadError] = useState<string | null>(null)
 
   const handleExtensionRecording = useCallback((result: RecordingResult) => {
     setRecording(result)
@@ -195,24 +197,47 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
     setMode("viewing")
   }, [])
 
+  // Reopen a saved editable project: fetch its ORIGINAL tracks and rehydrate the
+  // editor from the persisted editor_state (trim, segments, camera shape/layout,
+  // captions, etc.). Only 'project' rows are editable; legacy flattened rows are
+  // view/download-only.
   const editSavedVideo = useCallback(async () => {
-    if (!selectedVideo) return
+    if (!selectedVideo || selectedVideo.kind !== "project" || !selectedVideo.screen_url) return
+    setEditLoadError(null)
+    setEditLoading(true)
     try {
-      const response = await fetch(selectedVideo.url)
-      if (!response.ok) throw new Error("Could not load the saved video")
-      const blob = await response.blob()
-      setRecording({
-        screen: {
+      const state = selectedVideo.editor_state
+      const fetchTrack = async (url: string, fallbackMime: string) => {
+        const res = await fetch(url)
+        if (!res.ok) throw new Error("Could not load a saved track")
+        const blob = await res.blob()
+        return {
           blob,
           url: URL.createObjectURL(blob),
-          mimeType: blob.type || "video/mp4",
-        },
-        camera: null,
-        duration: selectedVideo.duration_seconds,
+          mimeType: blob.type || fallbackMime,
+        }
+      }
+
+      const screen = await fetchTrack(selectedVideo.screen_url, state?.mimeTypes.screen || "video/webm")
+      const camera = selectedVideo.camera_url
+        ? await fetchTrack(selectedVideo.camera_url, state?.mimeTypes.camera || "video/webm")
+        : null
+      const audio = selectedVideo.audio_url
+        ? await fetchTrack(selectedVideo.audio_url, state?.mimeTypes.audio || "audio/webm")
+        : null
+
+      setRecording({
+        screen,
+        camera,
+        audio,
+        duration: state?.duration ?? selectedVideo.duration_seconds,
       })
       setMode("editing")
     } catch (error) {
-      console.error("[v0] saved video load failed:", error)
+      console.error("[v0] saved project load failed:", error)
+      setEditLoadError("Couldn't open this project for editing. Please try again.")
+    } finally {
+      setEditLoading(false)
     }
   }, [selectedVideo])
 
@@ -358,6 +383,7 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
       <EditorScreen
         recording={recording}
         initialLayout={layout}
+        initialState={selectedVideo?.editor_state ?? null}
         sourceVideo={selectedVideo}
         onReset={resetStudio}
         onSaved={(saved) => {

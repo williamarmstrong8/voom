@@ -1,10 +1,32 @@
-import { put } from "@vercel/blob"
 import { NextResponse } from "next/server"
-import { listVideos, pool, type VideoRow } from "@/lib/db"
+import {
+  ensureVideosSchema,
+  listVideos,
+  pool,
+  rowToSavedVideo,
+  SELECT_COLUMNS,
+  type EditorState,
+  type VideoRow,
+} from "@/lib/db"
 
 export const runtime = "nodejs"
-// Allow time to stream the recording up to Blob.
-export const maxDuration = 60
+
+// The Blob store is private, so files are streamed back through /api/file
+// rather than served from a public URL.
+const serveUrl = (pathname: string) => `/api/file?pathname=${encodeURIComponent(pathname)}`
+
+interface CreateProjectBody {
+  title?: string
+  durationSeconds?: number
+  sizeBytes?: number
+  /** Primary track shown in the library player (the raw screen recording). */
+  pathname: string
+  thumbnailPathname?: string | null
+  screenPathname?: string | null
+  cameraPathname?: string | null
+  audioPathname?: string | null
+  editorState?: EditorState | null
+}
 
 // List all saved videos, newest first.
 export async function GET() {
@@ -17,61 +39,45 @@ export async function GET() {
   }
 }
 
-// Receive the finished recording as multipart form data, upload the file (and
-// optional thumbnail) to Blob from the server, then persist its metadata.
-// Uploading server-side avoids the browser making a cross-origin request to the
-// Blob API, which is blocked by CORS in some hosting environments.
+// Persist metadata for a recording whose media was already uploaded to Blob
+// directly from the browser (client upload). No file body is sent here, so the
+// request is tiny and fast — the heavy bytes never touch this function.
 export async function POST(request: Request) {
   try {
-    const form = await request.formData()
-    const video = form.get("video")
-    const thumbnail = form.get("thumbnail")
-    const title = (form.get("title") as string | null)?.trim() || "Untitled recording"
-    const durationSeconds = Number(form.get("durationSeconds")) || 0
+    await ensureVideosSchema()
+    const body = (await request.json()) as CreateProjectBody
+    const title = body.title?.trim() || "Untitled recording"
+    const durationSeconds = Number(body.durationSeconds) || 0
+    const sizeBytes = Number(body.sizeBytes) || 0
 
-    if (!(video instanceof Blob) || video.size === 0) {
-      return NextResponse.json({ error: "Missing video file" }, { status: 400 })
+    if (!body.pathname) {
+      return NextResponse.json({ error: "Missing uploaded video pathname" }, { status: 400 })
     }
 
-    const stamp = Date.now()
-    const safeTitle =
-      title.replace(/[^\w-]+/g, "-").toLowerCase().replace(/^-+|-+$/g, "") || "recording"
-
-    // The Blob store is private, so files are streamed back through /api/file
-    // rather than served from a public URL.
-    const serveUrl = (p: string) => `/api/file?pathname=${encodeURIComponent(p)}`
-
-    const videoBlob = await put(`videos/${safeTitle}-${stamp}.mp4`, video, {
-      access: "private",
-      contentType: "video/mp4",
-      addRandomSuffix: true,
-    })
-
-    let thumbnailUrl: string | null = null
-    if (thumbnail instanceof Blob && thumbnail.size > 0) {
-      const thumbBlob = await put(`thumbnails/${safeTitle}-${stamp}.jpg`, thumbnail, {
-        access: "private",
-        contentType: "image/jpeg",
-        addRandomSuffix: true,
-      })
-      thumbnailUrl = serveUrl(thumbBlob.pathname)
-    }
+    const isProject = Boolean(body.screenPathname && body.editorState)
 
     const { rows } = await pool.query<VideoRow>(
-      `INSERT INTO videos (title, pathname, url, thumbnail_url, duration_seconds, size_bytes)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, title, pathname, url, thumbnail_url, duration_seconds, size_bytes, created_at`,
+      `INSERT INTO videos
+         (title, pathname, url, thumbnail_url, duration_seconds, size_bytes,
+          kind, screen_pathname, camera_pathname, audio_pathname, editor_state)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING ${SELECT_COLUMNS}`,
       [
         title,
-        videoBlob.pathname,
-        serveUrl(videoBlob.pathname),
-        thumbnailUrl,
+        body.pathname,
+        serveUrl(body.pathname),
+        body.thumbnailPathname ? serveUrl(body.thumbnailPathname) : null,
         durationSeconds,
-        video.size,
+        sizeBytes,
+        isProject ? "project" : "legacy",
+        body.screenPathname ?? null,
+        body.cameraPathname ?? null,
+        body.audioPathname ?? null,
+        body.editorState ? JSON.stringify(body.editorState) : null,
       ],
     )
 
-    return NextResponse.json({ video: rows[0] })
+    return NextResponse.json({ video: rowToSavedVideo(rows[0]) })
   } catch (error) {
     console.error("[v0] save video failed:", error)
     return NextResponse.json(

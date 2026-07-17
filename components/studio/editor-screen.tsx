@@ -36,12 +36,21 @@ import {
   type EditorSegment,
   type TitleCard,
 } from "@/lib/editor-types"
-import { compositeToWebm, type ExportQuality } from "@/lib/export"
+import {
+  canPassthrough,
+  compositeToFile,
+  type ExportQuality,
+} from "@/lib/export"
 import { extractFrames } from "@/lib/frames"
-import { captureThumbnailFromBlob, saveVideoToLibrary, updateVideoInLibrary } from "@/lib/upload-video"
+import {
+  captureThumbnailFromBlob,
+  saveProjectToLibrary,
+  updateProjectInLibrary,
+} from "@/lib/upload-video"
 import {
   DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
+  type EditorState,
   type RecordingResult,
   type SavedVideo,
   type TrimRange,
@@ -55,6 +64,8 @@ interface EditorScreenProps {
   recording: RecordingResult
   /** Camera shape/size chosen during setup; used as the starting layout. */
   initialLayout?: CameraLayout
+  /** Saved editor state when reopening an existing project (full rehydrate). */
+  initialState?: EditorState | null
   onReset: () => void
   /** Existing library video when the editor is updating rather than creating. */
   sourceVideo?: SavedVideo | null
@@ -83,6 +94,7 @@ function downloadBlobUrl(url: string, filename: string) {
 export function EditorScreen({
   recording,
   initialLayout = DEFAULT_CAMERA_LAYOUT,
+  initialState = null,
   sourceVideo = null,
   onSaved,
 }: EditorScreenProps) {
@@ -96,8 +108,9 @@ export function EditorScreen({
   const [savePhase, setSavePhase] = useState<SavePhase>("idle")
   const [saveError, setSaveError] = useState<string | null>(null)
 
-  const [duration, setDuration] = useState(recording.duration || 0)
-  const [trim, setTrim] = useState<TrimRange>({ start: 0, end: recording.duration || 0 })
+  const seededDuration = initialState?.duration || recording.duration || 0
+  const [duration, setDuration] = useState(seededDuration)
+  const [trim, setTrim] = useState<TrimRange>({ start: 0, end: seededDuration })
   const [currentTime, setCurrentTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [volume, setVolume] = useState(1)
@@ -105,20 +118,20 @@ export function EditorScreen({
   const [aspect, setAspect] = useState(16 / 9)
   const [frames, setFrames] = useState<string[]>([])
   const framesForUrl = useRef<string | null>(null)
-  const [segments, setSegments] = useState<EditorSegment[]>([])
+  const [segments, setSegments] = useState<EditorSegment[]>(initialState?.segments ?? [])
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [history, setHistory] = useState<EditorSegment[][]>([])
   const [future, setFuture] = useState<EditorSegment[][]>([])
   const [timelineZoom, setTimelineZoom] = useState(1)
-  const [captions, setCaptions] = useState<CaptionCue[]>([])
+  const [captions, setCaptions] = useState<CaptionCue[]>(initialState?.captions ?? [])
   const [captioning, setCaptioning] = useState(false)
   const [captionError, setCaptionError] = useState<string | null>(null)
-  const [titleCards, setTitleCards] = useState<TitleCard[]>([])
-  const [brandKit] = useState(DEFAULT_BRAND_KIT)
+  const [titleCards, setTitleCards] = useState<TitleCard[]>(initialState?.titleCards ?? [])
+  const [brandKit] = useState(initialState?.brandKit ?? DEFAULT_BRAND_KIT)
   const [activeTool, setActiveTool] = useState<"captions" | "camera" | "export">("captions")
 
-  const [layout, setLayout] = useState<CameraLayout>(initialLayout)
-  const [cameraVisible, setCameraVisible] = useState(hasCamera)
+  const [layout, setLayout] = useState<CameraLayout>(initialState?.camera.layout ?? initialLayout)
+  const [cameraVisible, setCameraVisible] = useState(initialState?.camera.visible ?? hasCamera)
 
   const [phase, setPhase] = useState<ExportPhase>("idle")
   const [compositeProgress, setCompositeProgress] = useState(0)
@@ -353,33 +366,61 @@ export function EditorScreen({
     ? segments.reduce((total, segment) => total + segment.sourceEnd - segment.sourceStart, 0)
     : Math.max(0, trim.end - trim.start)
 
+  // Render the finished, composited file — ONLY used for export/download. The
+  // library save path never calls this; it stores the raw originals instead.
   const getRenderedOutput = useCallback(async (): Promise<Blob> => {
     const key = JSON.stringify({ cameraVisible, layout, trim, segments, captions, titleCards, brandKit, exportFormat, exportQuality })
     if (renderKeyRef.current === key && exportedBlob) return exportedBlob
 
+    // Fast path: no compositing edits and the source already matches the
+    // requested format → the raw screen recording IS the finished file.
+    if (
+      canPassthrough({
+        cameraVisible,
+        hasCamera,
+        captions,
+        titleCards,
+        segments,
+        sourceDuration: duration,
+        screenMimeType: recording.screen.mimeType,
+        requestedFormat: exportFormat,
+      })
+    ) {
+      setCompositeProgress(1)
+      setExportedBlob(recording.screen.blob)
+      renderKeyRef.current = key
+      return recording.screen.blob
+    }
+
     setCompositeProgress(0)
     setPhase("compositing")
-    const webm = await compositeToWebm({
+    const { blob, format } = await compositeToFile({
       screenUrl: recording.screen.url,
       cameraUrl: cameraVisible && recording.camera ? recording.camera.url : null,
       audioUrl: recording.audio?.url ?? null,
       layout,
       trim,
       quality: exportQuality,
+      format: exportFormat,
       segments,
       captions,
       titleCards,
       brandKit,
       onProgress: setCompositeProgress,
     })
-    const output =
-      exportFormat === "mp4"
-        ? (setPhase("transcoding"), await ffmpeg.transcodeToMp4(webm))
-        : webm
+
+    // Single native encode covers MP4 on modern Chromium. Only when the user
+    // asked for MP4 and the browser couldn't encode it natively do we fall back
+    // to the (slower) FFmpeg.wasm transcode.
+    let output = blob
+    if (exportFormat === "mp4" && format !== "mp4") {
+      setPhase("transcoding")
+      output = await ffmpeg.transcodeToMp4(blob)
+    }
     setExportedBlob(output)
     renderKeyRef.current = key
     return output
-  }, [recording, cameraVisible, layout, trim, segments, captions, titleCards, brandKit, exportFormat, exportQuality, exportedBlob, ffmpeg])
+  }, [recording, hasCamera, duration, cameraVisible, layout, trim, segments, captions, titleCards, brandKit, exportFormat, exportQuality, exportedBlob, ffmpeg])
 
   const runExport = useCallback(async () => {
     setExportError(null)
@@ -399,39 +440,67 @@ export function EditorScreen({
     }
   }, [getRenderedOutput, exportedUrl, pause])
 
+  // Snapshot the current editing decisions so reopening restores everything.
+  const buildEditorState = useCallback((): EditorState => {
+    const activeSegments = segments.length
+      ? segments
+      : [{ id: crypto.randomUUID(), sourceStart: trim.start, sourceEnd: trim.end }]
+    return {
+      version: 1,
+      duration,
+      segments: activeSegments.map((s) => ({ id: s.id, sourceStart: s.sourceStart, sourceEnd: s.sourceEnd })),
+      camera: { visible: cameraVisible, layout },
+      captions,
+      titleCards,
+      brandKit,
+      mimeTypes: {
+        screen: recording.screen.mimeType,
+        camera: recording.camera?.mimeType ?? null,
+        audio: recording.audio?.mimeType ?? null,
+      },
+    }
+  }, [segments, trim.start, trim.end, duration, cameraVisible, layout, captions, titleCards, brandKit, recording])
+
+  // Save to library = upload the ORIGINAL recorded tracks + editor state. No
+  // render, no re-encode: fast and lossless. The project stays fully editable.
   const saveToLibrary = useCallback(async () => {
     setSaveError(null)
     pause()
     try {
       setSavePhase("processing")
-      const output = await getRenderedOutput()
-
-      // Cover image = the first frame of the fully edited video (respects trim,
-      // segment order, title cards, camera overlay), not the raw source.
-      const thumbnail = await captureThumbnailFromBlob(output, 0)
+      // Cover thumbnail from the raw screen track (matches the library preview).
+      const thumbnail = await captureThumbnailFromBlob(recording.screen.blob, segments[0]?.sourceStart ?? 0)
 
       setSavePhase("uploading")
-    const saveInput = {
-      video: output,
-      thumbnail,
-      title: title.trim() || "Untitled recording",
-      durationSeconds: trimmedDuration,
-      filename: `recording.${exportFormat}`,
-    }
-    const saved = sourceVideo
-      ? await updateVideoInLibrary(sourceVideo.id, saveInput)
-      : await saveVideoToLibrary(saveInput)
-    setSavePhase("done")
-    // Give a beat for the success state, then return to the saved video.
-    setTimeout(() => onSaved(saved), 700)
+      const input = {
+        screen: recording.screen.blob,
+        camera: recording.camera?.blob ?? null,
+        audio: recording.audio?.blob ?? null,
+        thumbnail,
+        mimeTypes: {
+          screen: recording.screen.mimeType,
+          camera: recording.camera?.mimeType ?? null,
+          audio: recording.audio?.mimeType ?? null,
+        },
+        title: title.trim() || "Untitled recording",
+        durationSeconds: trimmedDuration,
+        editorState: buildEditorState(),
+        onProgress: (fraction: number) => setCompositeProgress(fraction),
+      }
+      const saved = sourceVideo
+        ? await updateProjectInLibrary(sourceVideo.id, input)
+        : await saveProjectToLibrary(input)
+      setSavePhase("done")
+      // Give a beat for the success state, then return to the saved video.
+      setTimeout(() => onSaved(saved), 700)
     } catch (err) {
       console.log("[v0] save failed:", err)
       setSaveError(
-        "Couldn't save the video. Processing works best in Chrome or Edge on desktop.",
+        "Couldn't save the video to your library. Please check your connection and try again.",
       )
       setSavePhase("error")
     }
-  }, [getRenderedOutput, trim.start, trim.end, segments, pause, title, exportFormat, sourceVideo, onSaved])
+  }, [recording, segments, pause, title, trimmedDuration, buildEditorState, sourceVideo, onSaved])
 
   useEffect(() => {
     renderKeyRef.current = null
@@ -703,23 +772,27 @@ export function EditorScreen({
                     className="h-full rounded-full bg-primary transition-all"
                     style={{
                       width: `${Math.round(
-                        (phase === "compositing"
-                          ? compositeProgress * (exportFormat === "mp4" ? 0.6 : 1)
-                          : exportFormat === "mp4"
-                            ? 0.6 + ffmpeg.progress * 0.4
-                            : compositeProgress) * 100,
+                        (saving
+                          ? compositeProgress
+                          : phase === "compositing"
+                            ? compositeProgress * (exportFormat === "mp4" ? 0.6 : 1)
+                            : exportFormat === "mp4"
+                              ? 0.6 + ffmpeg.progress * 0.4
+                              : compositeProgress) * 100,
                       )}%`,
                     }}
                   />
                 </div>
                 <p className="mt-1.5 text-xs text-muted-foreground">
                   {savePhase === "uploading"
-                    ? "Uploading to library…"
-                    : phase === "transcoding"
-                      ? ffmpeg.loading
-                        ? "Loading MP4 encoder…"
-                        : "Encoding MP4…"
-                      : "Compositing camera + screen…"}
+                    ? "Uploading originals to library…"
+                    : savePhase === "processing"
+                      ? "Preparing…"
+                      : phase === "transcoding"
+                        ? ffmpeg.loading
+                          ? "Loading MP4 encoder…"
+                          : "Encoding MP4…"
+                        : "Compositing camera + screen…"}
                 </p>
               </div>
             )}
@@ -783,7 +856,7 @@ export function EditorScreen({
                 variant="secondary"
                 size="sm"
                 className="justify-start gap-2"
-                onClick={() => downloadBlobUrl(recording.screen.url, "screen.webm")}
+                onClick={() => downloadBlobUrl(recording.screen.url, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)}
               >
                 <Download className="size-3.5" />
                 Screen track
@@ -793,7 +866,7 @@ export function EditorScreen({
                   variant="secondary"
                   size="sm"
                   className="justify-start gap-2"
-                  onClick={() => downloadBlobUrl(recording.camera!.url, "camera.webm")}
+                  onClick={() => downloadBlobUrl(recording.camera!.url, `camera.${recording.camera!.mimeType.includes("mp4") ? "mp4" : "webm"}`)}
                 >
                   <Download className="size-3.5" />
                   Camera track
