@@ -46,38 +46,17 @@ export function Timeline({
   const dragStartSegments = useRef<EditorSegment[] | null>(null)
   const [scrubbing, setScrubbing] = useState(false)
   const [draggingEdge, setDraggingEdge] = useState<{ id: string; edge: Edge } | null>(null)
-  const projectDuration = Math.max(0.01, segments.reduce((sum, item) => sum + item.sourceEnd - item.sourceStart, 0))
+  const displayDuration = Math.max(0.01, sourceDuration)
+  const editedDuration = Math.max(0.01, segments.reduce((sum, item) => sum + item.sourceEnd - item.sourceStart, 0))
   const contentWidth = `${Math.max(100, zoom * 100)}%`
 
-  const clips = useMemo(() => {
-    let projectStart = 0
-    return segments.map((segment) => {
-      const clip = { segment, projectStart, projectEnd: projectStart + segment.sourceEnd - segment.sourceStart }
-      projectStart = clip.projectEnd
-      return clip
-    })
-  }, [segments])
-
-  const sourceToProject = useCallback((sourceTime: number) => {
-    const clip = clips.find(({ segment }) => sourceTime >= segment.sourceStart && sourceTime <= segment.sourceEnd)
-    if (clip) return clip.projectStart + sourceTime - clip.segment.sourceStart
-    const next = clips.find(({ segment }) => sourceTime < segment.sourceStart)
-    return next?.projectStart ?? projectDuration
-  }, [clips, projectDuration])
-
-  const projectToSource = useCallback((projectTime: number) => {
-    const bounded = Math.max(0, Math.min(projectDuration, projectTime))
-    const clip = clips.find((item, index) => bounded < item.projectEnd || index === clips.length - 1)
-    return clip ? clip.segment.sourceStart + Math.min(clip.projectEnd - clip.projectStart, bounded - clip.projectStart) : 0
-  }, [clips, projectDuration])
-
-  const projectAtPointer = useCallback((clientX: number) => {
+  const sourceAtPointer = useCallback((clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect()
     if (!rect) return 0
-    return Math.max(0, Math.min(projectDuration, ((clientX - rect.left) / rect.width) * projectDuration))
-  }, [projectDuration])
+    return Math.max(0, Math.min(displayDuration, ((clientX - rect.left) / rect.width) * displayDuration))
+  }, [displayDuration])
 
-  const scrub = useCallback((clientX: number) => onSeek(projectToSource(projectAtPointer(clientX))), [onSeek, projectAtPointer, projectToSource])
+  const scrub = useCallback((clientX: number) => onSeek(sourceAtPointer(clientX)), [onSeek, sourceAtPointer])
 
   const beginScrub = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
@@ -87,10 +66,10 @@ export function Timeline({
     scrub(event.clientX)
   }
 
-  const tickStep = projectDuration <= 15 ? 1 : projectDuration <= 60 ? 5 : projectDuration <= 180 ? 10 : 30
+  const tickStep = displayDuration <= 15 ? 1 : displayDuration <= 60 ? 5 : displayDuration <= 180 ? 10 : 30
   const minorStep = tickStep / 5
-  const ticks = Array.from({ length: Math.floor(projectDuration / minorStep) + 1 }, (_, index) => index * minorStep)
-  const playhead = (sourceToProject(currentTime) / projectDuration) * 100
+  const ticks = Array.from({ length: Math.floor(displayDuration / minorStep) + 1 }, (_, index) => index * minorStep)
+  const playhead = (currentTime / displayDuration) * 100
 
   const beginEdgeDrag = (id: string, edge: Edge, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return
@@ -106,13 +85,11 @@ export function Timeline({
     const index = segments.findIndex((segment) => segment.id === id)
     if (index < 0) return
     const segment = segments[index]
-    const deltaProject = projectAtPointer(event.clientX) - (edge === "start" ? clips[index].projectStart : clips[index].projectEnd)
+    const pointerTime = sourceAtPointer(event.clientX)
     const minimum = 0.15
     const lowerBound = edge === "start" ? (segments[index - 1]?.sourceEnd ?? 0) : segment.sourceStart + minimum
     const upperBound = edge === "end" ? (segments[index + 1]?.sourceStart ?? sourceDuration) : segment.sourceEnd - minimum
-    const value = edge === "start"
-      ? Math.max(lowerBound, Math.min(upperBound, segment.sourceStart + deltaProject))
-      : Math.max(lowerBound, Math.min(upperBound, segment.sourceEnd + deltaProject))
+    const value = Math.max(lowerBound, Math.min(upperBound, pointerTime))
     const next = segments.map((item) => item.id === id ? { ...item, [edge === "start" ? "sourceStart" : "sourceEnd"]: value } : item)
     onSegmentsChange(next)
     onSeek(value)
@@ -128,7 +105,7 @@ export function Timeline({
   return (
     <section className="rounded-md border border-border bg-card p-3" aria-label="Video timeline">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <span className="text-xs tabular-nums text-muted-foreground">{fmt(sourceToProject(currentTime))} / {fmt(projectDuration)}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{fmt(currentTime)} / {fmt(displayDuration)} <span className="ml-1 text-foreground">({fmt(editedDuration)} kept)</span></span>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">Zoom<input type="range" min="1" max="6" step="0.25" value={zoom} onChange={(event) => onZoomChange?.(Number(event.target.value))} className="w-24 accent-primary" /><span className="w-8 tabular-nums text-foreground">{Math.round(zoom * 100)}%</span></label>
       </div>
       <div className="overflow-x-auto pb-2">
@@ -136,16 +113,20 @@ export function Timeline({
           <div className="relative h-8 cursor-ew-resize border-b border-border" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
             {ticks.map((time) => {
               const major = Math.abs(time / tickStep - Math.round(time / tickStep)) < 0.01
-              return <div key={time} className={cn("pointer-events-none absolute bottom-0 border-l border-border", major ? "h-4" : "h-2")} style={{ left: `${(time / projectDuration) * 100}%` }}>{major && <span className="absolute bottom-3 left-1 text-[10px] tabular-nums text-muted-foreground">{fmt(time)}</span>}</div>
+              return <div key={time} className={cn("pointer-events-none absolute bottom-0 border-l border-border", major ? "h-4" : "h-2")} style={{ left: `${(time / displayDuration) * 100}%` }}>{major && <span className="absolute bottom-3 left-1 text-[10px] tabular-nums text-muted-foreground">{fmt(time)}</span>}</div>
             })}
           </div>
 
-          <div className="relative mt-2 flex h-20 gap-1" onPointerDown={(event) => { if ((event.target as HTMLElement).dataset.clip) return; beginScrub(event) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }}>
-            {clips.map(({ segment, projectStart, projectEnd }, index) => {
+          <div className="relative mt-2 h-20 overflow-visible rounded-md bg-secondary/30" onPointerDown={(event) => { if ((event.target as HTMLElement).closest("[data-clip]")) return; beginScrub(event) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }}>
+            <div className="pointer-events-none absolute inset-0 flex overflow-hidden rounded-[inherit] opacity-20 grayscale">
+              {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
+            </div>
+            {segments.map((segment, index) => {
               const selected = selectedSegmentId === segment.id
-              const width = ((projectEnd - projectStart) / projectDuration) * 100
+              const left = (segment.sourceStart / displayDuration) * 100
+              const width = ((segment.sourceEnd - segment.sourceStart) / displayDuration) * 100
               return (
-                <div key={segment.id} data-clip="true" className={cn("group relative h-full shrink-0 cursor-pointer overflow-visible rounded-md border bg-secondary/50 transition-colors", selected ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-foreground/40")} style={{ width: `calc(${width}% - 2px)` }} onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setScrubbing(true); onSelectSegment(segment.id); scrub(event.clientX) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
+                <div key={segment.id} data-clip="true" className={cn("group absolute inset-y-0 cursor-pointer overflow-visible rounded-md border bg-secondary/90 transition-colors", selected ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-foreground/40")} style={{ left: `${left}%`, width: `${width}%` }} onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setScrubbing(true); onSelectSegment(segment.id); scrub(event.clientX) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
                   <div className="pointer-events-none absolute inset-0 flex overflow-hidden rounded-[inherit] opacity-70">
                     {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
                   </div>
@@ -162,7 +143,7 @@ export function Timeline({
             })}
           </div>
 
-          {captions.length > 0 && <div className="relative mt-2 h-7 cursor-ew-resize rounded-sm bg-secondary/50" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={() => setScrubbing(false)}>{captions.map((caption) => { const start = sourceToProject(caption.start); const end = sourceToProject(caption.end); return <div key={caption.id} className="pointer-events-none absolute inset-y-1 overflow-hidden rounded-sm bg-blue-500/30 px-1 text-[10px] leading-5" style={{ left: `${(start / projectDuration) * 100}%`, width: `${Math.max(1, ((end - start) / projectDuration) * 100)}%` }}>{caption.text}</div> })}</div>}
+          {captions.length > 0 && <div className="relative mt-2 h-7 cursor-ew-resize rounded-sm bg-secondary/50" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={() => setScrubbing(false)}>{captions.map((caption) => <div key={caption.id} className="pointer-events-none absolute inset-y-1 overflow-hidden rounded-sm bg-blue-500/30 px-1 text-[10px] leading-5" style={{ left: `${(caption.start / displayDuration) * 100}%`, width: `${Math.max(1, ((caption.end - caption.start) / displayDuration) * 100)}%` }}>{caption.text}</div>)}</div>}
           <div className="pointer-events-none absolute inset-y-0 z-30 w-0.5 bg-primary" style={{ left: `${playhead}%` }}>
             <div className="absolute -top-0.5 left-1/2 -translate-x-1/2 border-x-[6px] border-t-[9px] border-x-transparent border-t-primary" />
           </div>
