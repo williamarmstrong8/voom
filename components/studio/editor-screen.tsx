@@ -244,6 +244,20 @@ export function EditorScreen({
     setCurrentTime(time)
   }, [])
 
+  const updateTrim = useCallback((next: TrimRange) => {
+    setTrim(next)
+    setSegments((current) => {
+      if (!current.length) return current
+      return current
+        .map((segment, index) => ({
+          ...segment,
+          sourceStart: index === 0 ? next.start : segment.sourceStart,
+          sourceEnd: index === current.length - 1 ? next.end : segment.sourceEnd,
+        }))
+        .filter((segment) => segment.sourceEnd - segment.sourceStart >= 0.01)
+    })
+  }, [])
+
   const commitSegments = useCallback((next: EditorSegment[]) => {
     setHistory((items) => [...items.slice(-49), segments])
     setFuture([])
@@ -506,7 +520,7 @@ export function EditorScreen({
                 zoom={timelineZoom}
                 onZoomChange={setTimelineZoom}
                 onSelectSegment={setSelectedSegmentId}
-                onTrimChange={setTrim}
+                onTrimChange={updateTrim}
                 onSeek={seek}
               />
             </div>
