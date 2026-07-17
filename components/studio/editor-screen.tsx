@@ -80,59 +80,6 @@ function downloadBlobUrl(url: string, filename: string) {
   a.remove()
 }
 
-async function extractCaptionAudio(videoBlob: Blob): Promise<Blob> {
-  const audioContext = new AudioContext()
-  try {
-    const decoded = await audioContext.decodeAudioData(await videoBlob.arrayBuffer())
-    if (decoded.duration <= 0 || decoded.numberOfChannels === 0) {
-      throw new Error("This recording does not contain audio to caption.")
-    }
-
-    const sampleRate = 16_000
-    const frameCount = Math.ceil(decoded.duration * sampleRate)
-    const offline = new OfflineAudioContext(1, frameCount, sampleRate)
-    const source = offline.createBufferSource()
-    source.buffer = decoded
-    source.connect(offline.destination)
-    source.start()
-    const mono = await offline.startRendering()
-    return encodePcmWav(mono.getChannelData(0), sampleRate)
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("does not contain audio")) throw error
-    throw new Error("Voom could not read this recording's audio. Try recording with microphone or tab audio enabled.")
-  } finally {
-    void audioContext.close()
-  }
-}
-
-function encodePcmWav(samples: Float32Array, sampleRate: number): Blob {
-  const buffer = new ArrayBuffer(44 + samples.length * 2)
-  const view = new DataView(buffer)
-  const writeText = (offset: number, value: string) => {
-    for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index))
-  }
-
-  writeText(0, "RIFF")
-  view.setUint32(4, 36 + samples.length * 2, true)
-  writeText(8, "WAVE")
-  writeText(12, "fmt ")
-  view.setUint32(16, 16, true)
-  view.setUint16(20, 1, true)
-  view.setUint16(22, 1, true)
-  view.setUint32(24, sampleRate, true)
-  view.setUint32(28, sampleRate * 2, true)
-  view.setUint16(32, 2, true)
-  view.setUint16(34, 16, true)
-  writeText(36, "data")
-  view.setUint32(40, samples.length * 2, true)
-
-  for (let index = 0; index < samples.length; index += 1) {
-    const sample = Math.max(-1, Math.min(1, samples[index]))
-    view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
-  }
-  return new Blob([buffer], { type: "audio/wav" })
-}
-
 export function EditorScreen({
   recording,
   initialLayout = DEFAULT_CAMERA_LAYOUT,
@@ -341,9 +288,11 @@ export function EditorScreen({
     setCaptioning(true)
     setCaptionError(null)
     try {
-      const audio = await extractCaptionAudio(recording.screen.blob)
       const form = new FormData()
-      form.append("media", audio, "recording.wav")
+      if (recording.camera) {
+        form.append("media", recording.camera.blob, `camera.${recording.camera.mimeType.includes("mp4") ? "mp4" : "webm"}`)
+      }
+      form.append("media", recording.screen.blob, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)
       const response = await fetch("/api/captions", { method: "POST", body: form })
       const data = await response.json() as { captions?: CaptionCue[]; error?: string }
       if (!response.ok) throw new Error(data.error || "Caption generation failed")
@@ -355,7 +304,7 @@ export function EditorScreen({
     } finally {
       setCaptioning(false)
     }
-  }, [recording.screen.blob])
+  }, [recording.camera, recording.screen.blob, recording.screen.mimeType])
 
   const activeCaption = useMemo(
     () => captions.find((caption) => currentTime >= caption.start && currentTime <= caption.end),

@@ -1,4 +1,4 @@
-import { transcribe } from "ai"
+import { gateway, transcribe } from "ai"
 import { NextResponse } from "next/server"
 
 export const runtime = "nodejs"
@@ -7,21 +7,39 @@ export const maxDuration = 60
 export async function POST(request: Request) {
   try {
     const form = await request.formData()
-    const media = form.get("media")
-    if (!(media instanceof Blob) || media.size === 0) {
+    const candidates = form.getAll("media").filter((value): value is File => value instanceof File && value.size > 0)
+    if (!candidates.length) {
       return NextResponse.json({ error: "A recording is required" }, { status: 400 })
     }
-    if (media.size > 25 * 1024 * 1024) {
-      return NextResponse.json({ error: "Caption audio must be smaller than 25 MB" }, { status: 413 })
-    }
-    if (!media.type.startsWith("audio/")) {
-      return NextResponse.json({ error: "Captioning requires an audio file" }, { status: 415 })
+
+    const model = gateway.transcriptionModel("openai/gpt-4o-mini-transcribe")
+    let result: Awaited<ReturnType<typeof transcribe>> | null = null
+    let lastError: unknown = null
+
+    for (const media of candidates) {
+      if (media.size > 25 * 1024 * 1024) continue
+      try {
+        const mediaType = media.type.replace(/^video\//, "audio/") || "audio/webm"
+        const webmAwareModel = {
+          ...model,
+          doGenerate: (options: Parameters<typeof model.doGenerate>[0]) => model.doGenerate({ ...options, mediaType }),
+        }
+        result = await transcribe({
+          model: webmAwareModel,
+          audio: new Uint8Array(await media.arrayBuffer()),
+        })
+        if (result.text.trim()) break
+      } catch (error) {
+        lastError = error
+      }
     }
 
-    const result = await transcribe({
-      model: "openai/gpt-4o-mini-transcribe",
-      audio: new Uint8Array(await media.arrayBuffer()),
-    })
+    if (!result?.text.trim()) {
+      if (candidates.every((media) => media.size > 25 * 1024 * 1024)) {
+        return NextResponse.json({ error: "This recording is too large to caption. Try a recording under 30 seconds." }, { status: 413 })
+      }
+      throw lastError ?? new Error("No speech was found in the recording audio")
+    }
 
     const segments = result.segments.length
       ? result.segments.map((segment, index) => ({
