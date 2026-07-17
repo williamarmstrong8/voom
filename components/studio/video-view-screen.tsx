@@ -59,27 +59,57 @@ export function VideoViewScreen({
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const cameraRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
   const ffmpeg = useFfmpeg()
+  const cameraState = video.kind === "project" ? video.editor_state?.camera : null
+  const cameraLayout = cameraState?.layout ?? DEFAULT_CAMERA_LAYOUT
+  const cameraAspect = cameraLayout.shape === "rounded"
+    ? 16 / 9
+    : cameraLayout.shape === "triangle"
+      ? 2 / Math.sqrt(3)
+      : 1
+  const showCamera = Boolean(cameraState?.visible && video.camera_url)
 
-  const syncAudioPosition = () => {
+  const syncProjectTracks = () => {
     const player = videoRef.current
+    if (!player) return
+
+    const camera = cameraRef.current
+    if (camera && Math.abs(camera.currentTime - player.currentTime) > 0.12) {
+      camera.currentTime = player.currentTime
+    }
+
     const narration = audioRef.current
-    if (!player || !narration) return
-    if (Math.abs(narration.currentTime - player.currentTime) > 0.12) {
+    if (narration && Math.abs(narration.currentTime - player.currentTime) > 0.12) {
       narration.currentTime = player.currentTime
     }
   }
 
-  const playNarration = () => {
+  const playProjectTracks = () => {
     const player = videoRef.current
+    if (!player) return
+
+    const camera = cameraRef.current
+    if (camera) {
+      camera.currentTime = player.currentTime
+      camera.playbackRate = player.playbackRate
+      void camera.play()
+    }
+
     const narration = audioRef.current
-    if (!player || !narration) return
-    narration.currentTime = player.currentTime
-    narration.playbackRate = player.playbackRate
-    narration.volume = player.volume
-    narration.muted = player.muted
-    void narration.play()
+    if (narration) {
+      narration.currentTime = player.currentTime
+      narration.playbackRate = player.playbackRate
+      narration.volume = player.volume
+      narration.muted = player.muted
+      void narration.play()
+    }
+  }
+
+  const pauseProjectTracks = () => {
+    cameraRef.current?.pause()
+    audioRef.current?.pause()
   }
 
   const downloadMp4 = async () => {
@@ -180,12 +210,15 @@ export function VideoViewScreen({
               playsInline
               preload="auto"
               onLoadedData={() => setVideoReady(true)}
-              onPlay={playNarration}
-              onPause={() => audioRef.current?.pause()}
-              onEnded={() => audioRef.current?.pause()}
-              onSeeking={syncAudioPosition}
-              onTimeUpdate={syncAudioPosition}
+              onPlay={playProjectTracks}
+              onPause={pauseProjectTracks}
+              onEnded={pauseProjectTracks}
+              onSeeking={syncProjectTracks}
+              onTimeUpdate={syncProjectTracks}
               onRateChange={() => {
+                if (cameraRef.current && videoRef.current) {
+                  cameraRef.current.playbackRate = videoRef.current.playbackRate
+                }
                 if (audioRef.current && videoRef.current) {
                   audioRef.current.playbackRate = videoRef.current.playbackRate
                 }
@@ -200,6 +233,38 @@ export function VideoViewScreen({
             >
               <track kind="captions" />
             </video>
+            {showCamera && (
+              <div
+                className={`pointer-events-none absolute z-10 overflow-hidden border border-white/20 bg-black ${
+                  cameraLayout.shape === "circle"
+                    ? "rounded-full"
+                    : cameraLayout.shape === "square"
+                      ? "rounded-md"
+                      : cameraLayout.shape === "triangle"
+                        ? "border-0"
+                        : "rounded-sm"
+                }`}
+                style={{
+                  width: `${cameraLayout.width * 100}%`,
+                  aspectRatio: String(cameraAspect),
+                  left: `${cameraLayout.left * 100}%`,
+                  bottom: `${cameraLayout.bottom * 100}%`,
+                  clipPath: cameraLayout.shape === "triangle"
+                    ? "polygon(50% 0%, 100% 100%, 0% 100%)"
+                    : undefined,
+                }}
+                aria-hidden="true"
+              >
+                <video
+                  ref={cameraRef}
+                  src={video.camera_url ?? undefined}
+                  muted
+                  playsInline
+                  preload="auto"
+                  className="h-full w-full -scale-x-100 object-cover"
+                />
+              </div>
+            )}
             {video.kind === "project" && video.audio_url && (
               <audio ref={audioRef} src={video.audio_url} preload="auto" className="hidden" />
             )}
