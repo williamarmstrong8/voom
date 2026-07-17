@@ -26,6 +26,8 @@ export interface RecordingResult {
   screen: RecordedTrack
   /** Camera is optional — the user can record screen only. */
   camera: RecordedTrack | null
+  /** Audio-only microphone or shared-tab track used for transcription. */
+  audio?: RecordedTrack | null
   /** Measured wall-clock duration of the recording, in seconds. */
   duration: number
 }
@@ -44,8 +46,8 @@ export interface CameraLayout {
   bottom: number
   /** Overlay width as a 0-1 fraction of the frame width. */
   width: number
-  /** Overlay shape: 16:9 rounded rectangle, 1:1 square, or 1:1 circle. */
-  shape: "rounded" | "square" | "circle"
+  /** Overlay shape: 16:9 rounded rectangle or a 1:1 square, circle, or triangle. */
+  shape: "rounded" | "square" | "circle" | "triangle"
 }
 
 /** Inclusive trim window in seconds. */

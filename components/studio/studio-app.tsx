@@ -166,6 +166,7 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
     if (recording) {
       URL.revokeObjectURL(recording.screen.url)
       if (recording.camera) URL.revokeObjectURL(recording.camera.url)
+      if (recording.audio) URL.revokeObjectURL(recording.audio.url)
     }
     setRecording(null)
     setCursorBoth(0)

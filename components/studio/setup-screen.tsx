@@ -15,6 +15,7 @@ import {
   MonitorPlay,
   RectangleHorizontal,
   Square,
+  Triangle,
   Type,
   Video,
   VideoOff,
@@ -280,7 +281,7 @@ export function SetupScreen({
                 {cameraEnabled && <>
                   <div>
                     <p className="mb-1.5 text-xs text-muted-foreground">Shape</p>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                     <ShapeButton
                       active={layout.shape === "rounded"}
                       onClick={() => onLayout({ ...layout, shape: "rounded" })}
@@ -298,6 +299,12 @@ export function SetupScreen({
                       onClick={() => onLayout({ ...layout, shape: "circle" })}
                       icon={<Circle className="size-4" />}
                       label="Circle"
+                    />
+                    <ShapeButton
+                      active={layout.shape === "triangle"}
+                      onClick={() => onLayout({ ...layout, shape: "triangle" })}
+                      icon={<Triangle className="size-4" />}
+                      label="Triangle"
                     />
                   </div>
                 </div>
@@ -557,7 +564,7 @@ function PreviewCameraBubble({
     }
   }, [stream])
 
-  const isSquareish = layout.shape !== "rounded"
+  const previewAspect = layout.shape === "rounded" ? "16 / 9" : layout.shape === "triangle" ? `2 / ${Math.sqrt(3)}` : "1 / 1"
   return (
     <div
       className="absolute overflow-hidden border-2 border-background"
@@ -565,8 +572,9 @@ function PreviewCameraBubble({
         left: `${layout.left * 100}%`,
         bottom: `${layout.bottom * 100}%`,
         width: `${layout.width * 100}%`,
-        aspectRatio: isSquareish ? "1 / 1" : "16 / 9",
-        borderRadius: layout.shape === "circle" ? "9999px" : "0.75rem",
+        aspectRatio: previewAspect,
+        borderRadius: layout.shape === "circle" ? "9999px" : layout.shape === "triangle" ? "0" : "0.75rem",
+        clipPath: layout.shape === "triangle" ? "polygon(50% 0%, 100% 100%, 0% 100%)" : undefined,
       }}
     >
       <video ref={ref} muted playsInline className="h-full w-full -scale-x-100 object-cover" />

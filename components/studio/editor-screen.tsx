@@ -19,6 +19,7 @@ import {
   RotateCw,
   Scissors,
   Square,
+  Triangle,
   Trash2,
   Undo2,
   Video,
@@ -31,7 +32,6 @@ import { Timeline } from "@/components/studio/timeline"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
 import {
   DEFAULT_BRAND_KIT,
-  type BrandKit,
   type CaptionCue,
   type EditorSegment,
   type TitleCard,
@@ -114,8 +114,8 @@ export function EditorScreen({
   const [captioning, setCaptioning] = useState(false)
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>([])
-  const [brandKit, setBrandKit] = useState<BrandKit>(DEFAULT_BRAND_KIT)
-  const [activeTool, setActiveTool] = useState<"captions" | "brand" | "camera" | "export">("captions")
+  const [brandKit] = useState(DEFAULT_BRAND_KIT)
+  const [activeTool, setActiveTool] = useState<"captions" | "camera" | "export">("captions")
 
   const [layout, setLayout] = useState<CameraLayout>(initialLayout)
   const [cameraVisible, setCameraVisible] = useState(hasCamera)
@@ -289,10 +289,14 @@ export function EditorScreen({
     setCaptionError(null)
     try {
       const form = new FormData()
-      if (recording.camera) {
-        form.append("media", recording.camera.blob, `camera.${recording.camera.mimeType.includes("mp4") ? "mp4" : "webm"}`)
+      if (recording.audio) {
+        form.append("media", recording.audio.blob, "recording-audio.webm")
+      } else {
+        if (recording.camera) {
+          form.append("media", recording.camera.blob, `camera.${recording.camera.mimeType.includes("mp4") ? "mp4" : "webm"}`)
+        }
+        form.append("media", recording.screen.blob, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)
       }
-      form.append("media", recording.screen.blob, `screen.${recording.screen.mimeType.includes("mp4") ? "mp4" : "webm"}`)
       const response = await fetch("/api/captions", { method: "POST", body: form })
       const data = await response.json() as { captions?: CaptionCue[]; error?: string }
       if (!response.ok) throw new Error(data.error || "Caption generation failed")
@@ -304,7 +308,7 @@ export function EditorScreen({
     } finally {
       setCaptioning(false)
     }
-  }, [recording.camera, recording.screen.blob, recording.screen.mimeType])
+  }, [recording.audio, recording.camera, recording.screen.blob, recording.screen.mimeType])
 
   const activeCaption = useMemo(
     () => captions.find((caption) => currentTime >= caption.start && currentTime <= caption.end),
@@ -526,10 +530,9 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
-          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-4" : "grid-cols-3")}>
+          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-3" : "grid-cols-2")}>
             {([
               ["captions", Captions, "CC"],
-              ["brand", Film, "Brand"],
               ...(hasCamera ? [["camera", Video, "Camera"]] as const : []),
               ["export", Download, "Export"],
             ] as const).map(([tool, Icon, label]) => (
@@ -561,16 +564,6 @@ export function EditorScreen({
             </div>
           )}
 
-          {activeTool === "brand" && (
-            <div className="rounded-md border border-border bg-card p-4">
-              <p className="text-sm font-medium">Brand kit</p>
-              <p className="mt-1 text-xs text-muted-foreground">Set a consistent look for captions and exported videos in this project.</p>
-              <label className="mt-3 block text-xs text-muted-foreground">Kit name<input value={brandKit.name} onChange={(event) => setBrandKit((kit) => ({ ...kit, name: event.target.value }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none" /></label>
-              <label className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">Accent color<input type="color" value={brandKit.primaryColor} onChange={(event) => setBrandKit((kit) => ({ ...kit, primaryColor: event.target.value }))} className="size-8 rounded-sm border border-border bg-transparent" /></label>
-              <label className="mt-3 block text-xs text-muted-foreground">Typeface<select value={brandKit.fontFamily} onChange={(event) => setBrandKit((kit) => ({ ...kit, fontFamily: event.target.value as BrandKit["fontFamily"] }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground"><option value="geist">Geist Sans</option><option value="serif">Editorial Serif</option><option value="mono">Geist Mono</option></select></label>
-            </div>
-          )}
-
           {activeTool === "camera" && hasCamera && (
             <div className="rounded-md border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -595,7 +588,7 @@ export function EditorScreen({
               {cameraVisible && (
                 <>
                   <p className="mb-2 text-xs text-muted-foreground">Shape</p>
-                  <div className="mb-4 grid grid-cols-3 gap-2">
+                  <div className="mb-4 grid grid-cols-4 gap-2">
                     <ShapeButton
                       active={layout.shape === "rounded"}
                       onClick={() => setLayout((l) => ({ ...l, shape: "rounded" }))}
@@ -608,13 +601,19 @@ export function EditorScreen({
                       icon={<Square className="size-4" />}
                       label="Square"
                     />
-                    <ShapeButton
-                      active={layout.shape === "circle"}
-                      onClick={() => setLayout((l) => ({ ...l, shape: "circle" }))}
-                      icon={<Circle className="size-4" />}
-                      label="Circle"
-                    />
-                  </div>
+                <ShapeButton
+                  active={layout.shape === "circle"}
+                  onClick={() => setLayout((l) => ({ ...l, shape: "circle" }))}
+                  icon={<Circle className="size-4" />}
+                  label="Circle"
+                />
+                <ShapeButton
+                  active={layout.shape === "triangle"}
+                  onClick={() => setLayout((l) => ({ ...l, shape: "triangle" }))}
+                  icon={<Triangle className="size-4" />}
+                  label="Triangle"
+                />
+              </div>
 
                   <div className="mb-1 flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">Size</span>

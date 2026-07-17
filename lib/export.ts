@@ -180,8 +180,8 @@ export async function compositeToWebm({
 
     if (camera) {
       const camW = layout.width * canvas.width
-      // rounded = 16:9; square & circle = 1:1.
-      const camH = layout.shape === "rounded" ? camW * (9 / 16) : camW
+      // An equilateral triangle's height is √3 / 2 of its width.
+      const camH = layout.shape === "rounded" ? camW * (9 / 16) : layout.shape === "triangle" ? camW * (Math.sqrt(3) / 2) : camW
       const x = layout.left * canvas.width
       const y = canvas.height - layout.bottom * canvas.height - camH
       // Square uses a slightly larger corner radius than the 16:9 card.
@@ -191,6 +191,12 @@ export async function compositeToWebm({
         if (layout.shape === "circle") {
           ctx.beginPath()
           ctx.arc(x + camW / 2, y + camH / 2, Math.min(camW, camH) / 2, 0, Math.PI * 2)
+          ctx.closePath()
+        } else if (layout.shape === "triangle") {
+          ctx.beginPath()
+          ctx.moveTo(x + camW / 2, y)
+          ctx.lineTo(x + camW, y + camH)
+          ctx.lineTo(x, y + camH)
           ctx.closePath()
         } else {
           roundedRectPath(ctx, x, y, camW, camH, cornerRadius)
