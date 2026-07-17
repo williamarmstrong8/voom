@@ -46,10 +46,23 @@ export function Timeline({
   const trackRef = useRef<HTMLDivElement>(null)
   const dragStartSegments = useRef<EditorSegment[] | null>(null)
   const [scrubbing, setScrubbing] = useState(false)
+  const [viewportWidth, setViewportWidth] = useState(0)
   const [draggingEdge, setDraggingEdge] = useState<{ id: string; edge: Edge } | null>(null)
   const displayDuration = Math.max(0.01, sourceDuration)
   const editedDuration = Math.max(0.01, segments.reduce((sum, item) => sum + item.sourceEnd - item.sourceStart, 0))
   const contentWidth = `${Math.max(100, zoom * 100)}%`
+  const thumbnailCount = Math.max(1, Math.ceil((viewportWidth * zoom) / 112))
+  const thumbnailFrames = useMemo(
+    () => Array.from({ length: thumbnailCount }, (_, index) => {
+      if (frames.length === 0) return "/placeholder.svg"
+      const sourceIndex = Math.min(
+        frames.length - 1,
+        Math.floor((index / thumbnailCount) * frames.length),
+      )
+      return frames[sourceIndex] || "/placeholder.svg"
+    }),
+    [frames, thumbnailCount],
+  )
 
   const sourceAtPointer = useCallback((clientX: number) => {
     const rect = trackRef.current?.getBoundingClientRect()
@@ -71,6 +84,14 @@ export function Timeline({
   const minorStep = tickStep / 5
   const ticks = Array.from({ length: Math.floor(displayDuration / minorStep) + 1 }, (_, index) => index * minorStep)
   const playhead = (currentTime / displayDuration) * 100
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const observer = new ResizeObserver(([entry]) => setViewportWidth(entry.contentRect.width))
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [])
 
   // Zoom changes the amount of time visible inside a fixed viewport. Keep the
   // current playhead in view while the underlying timeline becomes wider.
@@ -134,7 +155,15 @@ export function Timeline({
 
           <div className="relative mt-2 h-20 overflow-visible rounded-md bg-secondary/30" onPointerDown={(event) => { if ((event.target as HTMLElement).closest("[data-clip]")) return; beginScrub(event) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }}>
             <div className="pointer-events-none absolute inset-0 flex overflow-hidden rounded-[inherit] opacity-20 grayscale">
-              {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
+              {thumbnailFrames.map((src, frameIndex) => (
+                <img
+                  key={frameIndex}
+                  src={src}
+                  alt=""
+                  className="h-full min-w-0 flex-1 object-cover"
+                  draggable={false}
+                />
+              ))}
             </div>
             {segments.map((segment, index) => {
               const selected = selectedSegmentId === segment.id
@@ -150,7 +179,15 @@ export function Timeline({
                         width: `${(displayDuration / (segment.sourceEnd - segment.sourceStart)) * 100}%`,
                       }}
                     >
-                      {frames.map((src, frameIndex) => <img key={frameIndex} src={src || "/placeholder.svg"} alt="" className="h-full min-w-0 flex-1 object-cover" draggable={false} />)}
+                      {thumbnailFrames.map((src, frameIndex) => (
+                <img
+                  key={frameIndex}
+                  src={src}
+                  alt=""
+                  className="h-full min-w-0 flex-1 object-cover"
+                  draggable={false}
+                />
+              ))}
                     </div>
                   </div>
                   <span className="pointer-events-none absolute bottom-1 left-2 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">Clip {index + 1}</span>
