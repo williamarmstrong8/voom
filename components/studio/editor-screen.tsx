@@ -12,13 +12,11 @@ import {
   Pause,
   Play,
   RectangleHorizontal,
-  RotateCcw,
   Redo2,
   Save,
   Scissors,
   Square,
   Trash2,
-  Type,
   Undo2,
   Video,
 } from "lucide-react"
@@ -127,7 +125,6 @@ export function EditorScreen({
   recording,
   initialLayout = DEFAULT_CAMERA_LAYOUT,
   sourceVideo = null,
-  onReset,
   onSaved,
 }: EditorScreenProps) {
   const hasCamera = !!recording.camera
@@ -156,7 +153,7 @@ export function EditorScreen({
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>([])
   const [brandKit, setBrandKit] = useState<BrandKit>(DEFAULT_BRAND_KIT)
-  const [activeTool, setActiveTool] = useState<"cleanup" | "captions" | "titles" | "brand">("cleanup")
+  const [activeTool, setActiveTool] = useState<"cleanup" | "captions" | "brand" | "camera" | "export">("cleanup")
 
   const [layout, setLayout] = useState<CameraLayout>(initialLayout)
   const [cameraVisible, setCameraVisible] = useState(hasCamera)
@@ -306,17 +303,6 @@ export function EditorScreen({
     }
   }, [recording.screen.blob])
 
-  const addTitleCard = useCallback(() => {
-    const card: TitleCard = {
-      id: crypto.randomUUID(),
-      start: currentTime,
-      end: Math.min(duration, currentTime + 3),
-      title: "Section title",
-      subtitle: "Add a short description",
-    }
-    setTitleCards((cards) => [...cards, card])
-  }, [currentTime, duration])
-
   const activeCaption = useMemo(
     () => captions.find((caption) => currentTime >= caption.start && currentTime <= caption.end),
     [captions, currentTime],
@@ -454,25 +440,7 @@ export function EditorScreen({
   const busy = phase === "compositing" || phase === "transcoding"
   const saving = savePhase === "processing" || savePhase === "uploading"
   return (
-    <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-5 px-5 py-8 lg:px-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="flex size-9 items-center justify-center rounded-xl border border-border bg-card">
-            <Film className="size-4 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold leading-tight tracking-tight">Edit your demo</h1>
-            <p className="text-xs text-muted-foreground">
-              Trim the ends, place your camera, then export to MP4.
-            </p>
-          </div>
-        </div>
-        <Button variant="ghost" onClick={onReset} className="gap-2">
-          <RotateCcw className="size-4" />
-          Record again
-        </Button>
-      </header>
-
+    <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col px-5 py-5 lg:px-8">
       <div className="grid gap-5 lg:grid-cols-[1fr_18rem]">
         {/* Preview + timeline */}
         <div className="flex flex-col gap-4">
@@ -515,25 +483,6 @@ export function EditorScreen({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-card p-2">
-            <div className="flex items-center gap-1">
-              <Button size="sm" variant="secondary" onClick={splitAtPlayhead} className="gap-2">
-                <Scissors className="size-3.5" /> Split
-              </Button>
-              <Button size="sm" variant="ghost" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2">
-                <Trash2 className="size-3.5" /> Ripple delete
-              </Button>
-              <span className="mx-1 h-5 w-px bg-border" />
-              <Button size="icon" variant="ghost" onClick={undo} disabled={!history.length} aria-label="Undo">
-                <Undo2 className="size-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={redo} disabled={!future.length} aria-label="Redo">
-                <Redo2 className="size-4" />
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">Split at the playhead, select a clip, then ripple delete.</p>
-          </div>
-
           {/* Transport */}
           <div className="flex items-center gap-3">
             <Button
@@ -566,12 +515,13 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
-          <div className="grid grid-cols-4 gap-1 rounded-md border border-border bg-card p-1">
+          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-5" : "grid-cols-4")}>
             {([
               ["cleanup", Scissors, "Cut"],
               ["captions", Captions, "CC"],
-              ["titles", Type, "Titles"],
               ["brand", Film, "Brand"],
+              ...(hasCamera ? [["camera", Video, "Camera"]] as const : []),
+              ["export", Download, "Export"],
             ] as const).map(([tool, Icon, label]) => (
               <button key={tool} type="button" onClick={() => setActiveTool(tool)} className={cn("flex flex-col items-center gap-1 rounded-sm px-1 py-2 text-[11px] font-medium transition-colors", activeTool === tool ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
                 <Icon className="size-4" />
@@ -587,6 +537,8 @@ export function EditorScreen({
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Button size="sm" variant="secondary" onClick={splitAtPlayhead} className="gap-2"><Scissors className="size-3.5" />Split</Button>
                 <Button size="sm" variant="secondary" onClick={deleteSelected} disabled={!selectedSegmentId || segments.length <= 1} className="gap-2"><Trash2 className="size-3.5" />Delete</Button>
+                <Button size="sm" variant="ghost" onClick={undo} disabled={!history.length} className="gap-2"><Undo2 className="size-3.5" />Undo</Button>
+                <Button size="sm" variant="ghost" onClick={redo} disabled={!future.length} className="gap-2"><Redo2 className="size-3.5" />Redo</Button>
               </div>
             </div>
           )}
@@ -612,32 +564,17 @@ export function EditorScreen({
             </div>
           )}
 
-          {activeTool === "titles" && (
-            <div className="rounded-md border border-border bg-card p-4">
-              <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">Title cards</p><Button size="sm" variant="secondary" onClick={addTitleCard}>Add at playhead</Button></div>
-              <p className="mt-1 text-xs text-muted-foreground">Create simple section breaks without leaving the editor.</p>
-              <div className="mt-3 flex flex-col gap-2">
-                {titleCards.map((card) => (
-                  <div key={card.id} className="rounded-sm border border-border bg-background p-2">
-                    <input value={card.title} onChange={(event) => setTitleCards((cards) => cards.map((item) => item.id === card.id ? { ...item, title: event.target.value } : item))} aria-label="Title card heading" className="w-full bg-transparent text-sm font-medium outline-none" />
-                    <input value={card.subtitle} onChange={(event) => setTitleCards((cards) => cards.map((item) => item.id === card.id ? { ...item, subtitle: event.target.value } : item))} aria-label="Title card subtitle" className="mt-1 w-full bg-transparent text-xs text-muted-foreground outline-none" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {activeTool === "brand" && (
             <div className="rounded-md border border-border bg-card p-4">
               <p className="text-sm font-medium">Brand kit</p>
-              <p className="mt-1 text-xs text-muted-foreground">Set a consistent look for titles and captions in this project.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Set a consistent look for captions and exported videos in this project.</p>
               <label className="mt-3 block text-xs text-muted-foreground">Kit name<input value={brandKit.name} onChange={(event) => setBrandKit((kit) => ({ ...kit, name: event.target.value }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground outline-none" /></label>
               <label className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">Accent color<input type="color" value={brandKit.primaryColor} onChange={(event) => setBrandKit((kit) => ({ ...kit, primaryColor: event.target.value }))} className="size-8 rounded-sm border border-border bg-transparent" /></label>
               <label className="mt-3 block text-xs text-muted-foreground">Typeface<select value={brandKit.fontFamily} onChange={(event) => setBrandKit((kit) => ({ ...kit, fontFamily: event.target.value as BrandKit["fontFamily"] }))} className="mt-1 w-full rounded-sm border border-border bg-background px-2 py-1.5 text-sm text-foreground"><option value="geist">Geist Sans</option><option value="serif">Editorial Serif</option><option value="mono">Geist Mono</option></select></label>
             </div>
           )}
 
-          {hasCamera && (
+          {activeTool === "camera" && hasCamera && (
             <div className="rounded-md border border-border bg-card p-4">
               <div className="mb-3 flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm font-medium">
@@ -709,6 +646,8 @@ export function EditorScreen({
             </div>
           )}
 
+          {activeTool === "export" && (
+            <>
           {/* Output: export + library save */}
           <div className="rounded-md border border-border bg-card p-4">
             <p className="mb-1 flex items-center gap-2 text-sm font-medium">
@@ -867,6 +806,8 @@ export function EditorScreen({
               )}
             </div>
           </div>
+            </>
+          )}
         </aside>
       </div>
     </main>
