@@ -1,7 +1,11 @@
+export type SegmentComposition = "screen-camera" | "camera-only"
+
 export interface EditorSegment {
   id: string
   sourceStart: number
   sourceEnd: number
+  /** Defaults to screen-camera for projects saved before composition modes existed. */
+  composition?: SegmentComposition
 }
 
 export interface CaptionCue {
