@@ -58,7 +58,6 @@ import {
 import { cn } from "@/lib/utils"
 
 type ExportPhase = "idle" | "compositing" | "transcoding" | "done" | "error"
-type ExportFormat = "mp4" | "webm"
 
 interface EditorScreenProps {
   recording: RecordingResult
@@ -141,7 +140,7 @@ export function EditorScreen({
   const [exportedUrl, setExportedUrl] = useState<string | null>(null)
   const [exportedBlob, setExportedBlob] = useState<Blob | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
-  const [exportFormat, setExportFormat] = useState<ExportFormat>("mp4")
+  const exportFormat = "mp4" as const
   const [exportQuality, setExportQuality] = useState<ExportQuality>("1080p")
   const renderKeyRef = useRef<string | null>(null)
 
@@ -748,32 +747,17 @@ export function EditorScreen({
               className="mb-3 w-full rounded-sm border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/50 disabled:opacity-60"
             />
 
-            <div className="mb-3 grid grid-cols-2 gap-2">
-              <div>
-                <p className="mb-1.5 text-xs text-muted-foreground">Format</p>
-                <div className="grid grid-cols-2 gap-1 rounded-sm bg-secondary p-1">
-                  {(["mp4", "webm"] as const).map((format) => (
-                    <OptionButton
-                      key={format}
-                      active={exportFormat === format}
-                      onClick={() => setExportFormat(format)}
-                      label={format.toUpperCase()}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div>
-                <p className="mb-1.5 text-xs text-muted-foreground">Quality</p>
-                <div className="grid grid-cols-2 gap-1 rounded-sm bg-secondary p-1">
-                  {(["720p", "1080p"] as const).map((quality) => (
-                    <OptionButton
-                      key={quality}
-                      active={exportQuality === quality}
-                      onClick={() => setExportQuality(quality)}
-                      label={quality}
-                    />
-                  ))}
-                </div>
+            <div className="mb-3">
+              <p className="mb-1.5 text-xs text-muted-foreground">Quality</p>
+              <div className="grid grid-cols-2 gap-1 rounded-sm bg-secondary p-1">
+                {(["720p", "1080p"] as const).map((quality) => (
+                  <OptionButton
+                    key={quality}
+                    active={exportQuality === quality}
+                    onClick={() => setExportQuality(quality)}
+                    label={quality}
+                  />
+                ))}
               </div>
             </div>
 

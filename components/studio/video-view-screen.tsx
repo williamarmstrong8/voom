@@ -3,7 +3,9 @@
 import { useState } from "react"
 import { ArrowLeft, Download, Loader2, Pencil, Video as VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import type { SavedVideo } from "@/lib/studio-types"
+import { useFfmpeg } from "@/hooks/use-ffmpeg"
+import { compositeToFile } from "@/lib/export"
+import { DEFAULT_CAMERA_LAYOUT, type SavedVideo } from "@/lib/studio-types"
 
 function formatDuration(seconds: number) {
   const total = Math.max(0, Math.round(seconds))
@@ -22,6 +24,15 @@ function formatDate(value: string) {
 function formatSize(bytes: number) {
   const megabytes = bytes / 1024 / 1024
   return megabytes >= 1000 ? `${(megabytes / 1024).toFixed(1)} GB` : `${megabytes.toFixed(0)} MB`
+}
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
 export function VideoViewScreen({
@@ -44,12 +55,49 @@ export function VideoViewScreen({
   // legacy rows play their stored flattened file.
   const playbackUrl = video.kind === "project" ? video.screen_url : video.url
   const baseUrl = playbackUrl ?? video.url
-  // `&download=1` makes the CDN serve an attachment disposition; the browser's
-  // own `download` attribute can't force it since bytes come from a cross-origin
-  // (CDN) redirect target.
-  const downloadUrl = baseUrl ? `${baseUrl}&download=1` : undefined
-  const downloadExt = baseUrl && baseUrl.includes("mp4") ? "mp4" : "webm"
   const [videoReady, setVideoReady] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+  const ffmpeg = useFfmpeg()
+
+  const downloadMp4 = async () => {
+    if (!baseUrl || downloading) return
+    setDownloading(true)
+    setDownloadError(null)
+    try {
+      let output: Blob
+      if (video.kind === "project" && video.editor_state && video.screen_url) {
+        const state = video.editor_state
+        const { blob, format } = await compositeToFile({
+          screenUrl: video.screen_url,
+          cameraUrl: state.camera.visible ? video.camera_url : null,
+          audioUrl: video.audio_url,
+          layout: state.camera.layout ?? DEFAULT_CAMERA_LAYOUT,
+          trim: { start: 0, end: state.duration },
+          quality: "1080p",
+          format: "mp4",
+          segments: state.segments,
+          captions: state.captions,
+          titleCards: state.titleCards,
+          brandKit: state.brandKit,
+        })
+        output = format === "mp4" ? blob : await ffmpeg.transcodeToMp4(blob)
+      } else {
+        const response = await fetch(baseUrl)
+        if (!response.ok) throw new Error("Could not load video")
+        const source = await response.blob()
+        output = source.type.includes("mp4") || baseUrl.includes(".mp4")
+          ? source
+          : await ffmpeg.transcodeToMp4(source)
+      }
+      saveBlob(output, `${video.title || "video"}.mp4`)
+    } catch (error) {
+      console.error("[v0] MP4 download failed:", error)
+      setDownloadError("Couldn't create the MP4. Please try again.")
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
@@ -68,14 +116,20 @@ export function VideoViewScreen({
         </div>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
-            <a
-              href={downloadUrl}
-              download={`${video.title}.${downloadExt}`}
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-button-14 text-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void downloadMp4()}
+              disabled={downloading}
+              className="gap-2"
             >
-              <Download className="size-4" />
-              Download
-            </a>
+              {downloading ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              {downloading
+                ? ffmpeg.loading
+                  ? "Preparing MP4…"
+                  : "Creating MP4…"
+                : "Download MP4"}
+            </Button>
             {editable && (
               <Button onClick={onEdit} disabled={editLoading} className="gap-2">
                 {editLoading ? <Loader2 className="size-4 animate-spin" /> : <Pencil className="size-4" />}
@@ -83,7 +137,9 @@ export function VideoViewScreen({
               </Button>
             )}
           </div>
-          {editError && <p className="text-copy-13 text-destructive">{editError}</p>}
+          {(editError || downloadError) && (
+            <p className="text-copy-13 text-destructive">{editError || downloadError}</p>
+          )}
         </div>
       </header>
 
