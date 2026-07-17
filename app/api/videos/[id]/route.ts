@@ -112,6 +112,35 @@ export async function PUT(
   }
 }
 
+// Rename a saved video without touching its media blobs or editor state.
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params
+  try {
+    const body = (await request.json()) as { title?: string }
+    const title = body.title?.trim()
+    if (!title) {
+      return NextResponse.json({ error: "Title is required" }, { status: 400 })
+    }
+
+    await ensureVideosSchema()
+    const { rows } = await pool.query<VideoRow>(
+      `UPDATE videos SET title = $1 WHERE id = $2 RETURNING ${SELECT_COLUMNS}`,
+      [title, id],
+    )
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 })
+    }
+
+    return NextResponse.json({ video: rowToSavedVideo(rows[0]) })
+  } catch (error) {
+    console.error("[v0] rename video failed:", error)
+    return NextResponse.json({ error: "Failed to rename video" }, { status: 500 })
+  }
+}
+
 // Delete a saved video: remove every associated blob, then the DB row.
 export async function DELETE(
   _request: Request,

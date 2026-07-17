@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, Download, Loader2, Pencil, Video as VideoIcon } from "lucide-react"
+import { useRef, useState } from "react"
+import { ArrowLeft, Download, Expand, Loader2, Pause, Pencil, Play, Volume2, VolumeX, Video as VideoIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
 import { compositeToFile } from "@/lib/export"
@@ -56,9 +56,66 @@ export function VideoViewScreen({
   const playbackUrl = video.kind === "project" ? video.screen_url : video.url
   const baseUrl = playbackUrl ?? video.url
   const [videoReady, setVideoReady] = useState(false)
+  const [screenAspect, setScreenAspect] = useState(16 / 9)
+  const [playing, setPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(video.duration_seconds)
+  const [volume, setVolume] = useState(1)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const cameraRef = useRef<HTMLVideoElement>(null)
+  const audioRef = useRef<HTMLAudioElement>(null)
   const ffmpeg = useFfmpeg()
+  const cameraState = video.kind === "project" ? video.editor_state?.camera : null
+  const cameraLayout = cameraState?.layout ?? DEFAULT_CAMERA_LAYOUT
+  const cameraAspect = cameraLayout.shape === "rounded"
+    ? 16 / 9
+    : cameraLayout.shape === "triangle"
+      ? 2 / Math.sqrt(3)
+      : 1
+  const showCamera = Boolean(cameraState?.visible && video.camera_url)
+
+  const syncProjectTracks = () => {
+    const player = videoRef.current
+    if (!player) return
+
+    const camera = cameraRef.current
+    if (camera && Math.abs(camera.currentTime - player.currentTime) > 0.12) {
+      camera.currentTime = player.currentTime
+    }
+
+    const narration = audioRef.current
+    if (narration && Math.abs(narration.currentTime - player.currentTime) > 0.12) {
+      narration.currentTime = player.currentTime
+    }
+  }
+
+  const playProjectTracks = () => {
+    const player = videoRef.current
+    if (!player) return
+
+    const camera = cameraRef.current
+    if (camera) {
+      camera.currentTime = player.currentTime
+      camera.playbackRate = player.playbackRate
+      void camera.play()
+    }
+
+    const narration = audioRef.current
+    if (narration) {
+      narration.currentTime = player.currentTime
+      narration.playbackRate = player.playbackRate
+      narration.volume = player.volume
+      narration.muted = player.muted
+      void narration.play()
+    }
+  }
+
+  const pauseProjectTracks = () => {
+    cameraRef.current?.pause()
+    audioRef.current?.pause()
+  }
 
   const downloadMp4 = async () => {
     if (!baseUrl || downloading) return
@@ -100,14 +157,13 @@ export function VideoViewScreen({
   }
 
   return (
-    <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
+    <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-4 px-5 py-8 lg:px-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <Button variant="secondary" size="icon" onClick={onBack} aria-label="Back to library">
             <ArrowLeft className="size-4" />
           </Button>
           <div className="min-w-0">
-            <p className="text-label-12 text-muted-foreground">Video</p>
             <h1 className="truncate text-heading-24 text-balance">{video.title}</h1>
             <p className="text-copy-13 text-muted-foreground">
               {formatDate(video.created_at)} · {formatDuration(video.duration_seconds)} · {formatSize(video.size_bytes)}
@@ -143,24 +199,165 @@ export function VideoViewScreen({
         </div>
       </header>
 
-      <section className="flex flex-1 items-center justify-center overflow-hidden" aria-label="Video player">
+      <section className="flex items-start justify-center overflow-hidden" aria-label="Video player">
         {playbackUrl ? (
-          <div className="relative aspect-video w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm">
+          <div
+            className="relative w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm"
+            style={{ aspectRatio: String(screenAspect) }}
+          >
             {!videoReady && (
               <div className="absolute inset-0 flex items-center justify-center bg-secondary" aria-label="Loading video">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
               </div>
             )}
             <video
+              ref={videoRef}
               src={playbackUrl}
-              controls={videoReady}
               playsInline
               preload="auto"
+              onClick={() => {
+                const player = videoRef.current
+                if (!player) return
+                if (player.paused) void player.play()
+                else player.pause()
+              }}
+              onLoadedMetadata={(event) => {
+                const { videoWidth, videoHeight, duration: mediaDuration } = event.currentTarget
+                if (videoWidth > 0 && videoHeight > 0) {
+                  setScreenAspect(videoWidth / videoHeight)
+                }
+                if (Number.isFinite(mediaDuration)) setDuration(mediaDuration)
+              }}
               onLoadedData={() => setVideoReady(true)}
-              className={`h-full w-full object-contain transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
+              onPlay={() => {
+                setPlaying(true)
+                playProjectTracks()
+              }}
+              onPause={() => {
+                setPlaying(false)
+                pauseProjectTracks()
+              }}
+              onEnded={() => {
+                setPlaying(false)
+                pauseProjectTracks()
+              }}
+              onSeeking={syncProjectTracks}
+              onTimeUpdate={(event) => {
+                setCurrentTime(event.currentTarget.currentTime)
+                syncProjectTracks()
+              }}
+              onRateChange={() => {
+                if (cameraRef.current && videoRef.current) {
+                  cameraRef.current.playbackRate = videoRef.current.playbackRate
+                }
+                if (audioRef.current && videoRef.current) {
+                  audioRef.current.playbackRate = videoRef.current.playbackRate
+                }
+              }}
+              onVolumeChange={() => {
+                if (videoRef.current) {
+                  setVolume(videoRef.current.muted ? 0 : videoRef.current.volume)
+                }
+                if (audioRef.current && videoRef.current) {
+                  audioRef.current.volume = videoRef.current.volume
+                  audioRef.current.muted = videoRef.current.muted
+                }
+              }}
+              className={`h-full w-full object-fill transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
             >
               <track kind="captions" />
             </video>
+            {showCamera && (
+              <div
+                className={`pointer-events-none absolute z-10 overflow-hidden border border-white/20 bg-black ${
+                  cameraLayout.shape === "circle"
+                    ? "rounded-full"
+                    : cameraLayout.shape === "square"
+                      ? "rounded-md"
+                      : cameraLayout.shape === "triangle"
+                        ? "border-0"
+                        : "rounded-sm"
+                }`}
+                style={{
+                  width: `${cameraLayout.width * 100}%`,
+                  aspectRatio: String(cameraAspect),
+                  left: `${cameraLayout.left * 100}%`,
+                  bottom: `${cameraLayout.bottom * 100}%`,
+                  clipPath: cameraLayout.shape === "triangle"
+                    ? "polygon(50% 0%, 100% 100%, 0% 100%)"
+                    : undefined,
+                }}
+                aria-hidden="true"
+              >
+                <video
+                  ref={cameraRef}
+                  src={video.camera_url ?? undefined}
+                  muted
+                  playsInline
+                  preload="auto"
+                  className="h-full w-full -scale-x-100 object-cover"
+                />
+              </div>
+            )}
+            {video.kind === "project" && video.audio_url && (
+              <audio ref={audioRef} src={video.audio_url} preload="auto" className="hidden" />
+            )}
+            {videoReady && (
+              <div className="absolute inset-x-0 bottom-0 z-40 flex items-center gap-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3 pb-3 pt-10 text-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const player = videoRef.current
+                    if (!player) return
+                    if (player.paused) void player.play()
+                    else player.pause()
+                  }}
+                  className="rounded-sm p-2 hover:bg-white/15"
+                  aria-label={playing ? "Pause" : "Play"}
+                >
+                  {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+                </button>
+                <span className="text-xs tabular-nums text-white/90">
+                  {formatDuration(currentTime)} / {formatDuration(duration)}
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max={duration || 0}
+                  step="0.01"
+                  value={Math.min(currentTime, duration || 0)}
+                  onChange={(event) => {
+                    const next = Number(event.target.value)
+                    if (videoRef.current) videoRef.current.currentTime = next
+                    setCurrentTime(next)
+                    syncProjectTracks()
+                  }}
+                  aria-label="Video progress"
+                  className="min-w-0 flex-1 accent-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const player = videoRef.current
+                    if (!player) return
+                    player.muted = !player.muted
+                    setVolume(player.muted ? 0 : player.volume)
+                  }}
+                  className="rounded-sm p-2 hover:bg-white/15"
+                  aria-label={volume === 0 ? "Unmute" : "Mute"}
+                >
+                  {volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void videoRef.current?.parentElement?.requestFullscreen()}
+                  className="rounded-sm p-2 hover:bg-white/15"
+                  aria-label="Fullscreen"
+                >
+                  <Expand className="size-4" />
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex min-h-96 w-full flex-col items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-muted-foreground shadow-sm">

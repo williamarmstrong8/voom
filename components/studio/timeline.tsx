@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import type { CaptionCue, EditorSegment } from "@/lib/editor-types"
 import { cn } from "@/lib/utils"
 
@@ -42,6 +42,7 @@ export function Timeline({
   onSegmentsCommit,
   onSeek,
 }: TimelineProps) {
+  const viewportRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
   const dragStartSegments = useRef<EditorSegment[] | null>(null)
   const [scrubbing, setScrubbing] = useState(false)
@@ -70,6 +71,17 @@ export function Timeline({
   const minorStep = tickStep / 5
   const ticks = Array.from({ length: Math.floor(displayDuration / minorStep) + 1 }, (_, index) => index * minorStep)
   const playhead = (currentTime / displayDuration) * 100
+
+  // Zoom changes the amount of time visible inside a fixed viewport. Keep the
+  // current playhead in view while the underlying timeline becomes wider.
+  useEffect(() => {
+    const viewport = viewportRef.current
+    const track = trackRef.current
+    if (!viewport || !track) return
+    const playheadX = (currentTime / displayDuration) * track.scrollWidth
+    const nextLeft = playheadX - viewport.clientWidth / 2
+    viewport.scrollTo({ left: Math.max(0, nextLeft) })
+  }, [zoom, currentTime, displayDuration])
 
   const beginEdgeDrag = (id: string, edge: Edge, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return
@@ -108,8 +120,11 @@ export function Timeline({
         <span className="text-xs tabular-nums text-muted-foreground">{fmt(currentTime)} / {fmt(displayDuration)} <span className="ml-1 text-foreground">({fmt(editedDuration)} kept)</span></span>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">Zoom<input type="range" min="1" max="6" step="0.25" value={zoom} onChange={(event) => onZoomChange?.(Number(event.target.value))} className="w-24 accent-primary" /><span className="w-8 tabular-nums text-foreground">{Math.round(zoom * 100)}%</span></label>
       </div>
-      <div className="overflow-x-auto pb-2">
-        <div ref={trackRef} className="relative min-w-full touch-none select-none" style={{ width: contentWidth }}>
+      <div
+        ref={viewportRef}
+        className="w-full min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div ref={trackRef} className="relative min-w-full max-w-none touch-none select-none" style={{ width: contentWidth }}>
           <div className="relative h-8 cursor-ew-resize border-b border-border" onPointerDown={beginScrub} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
             {ticks.map((time) => {
               const major = Math.abs(time / tickStep - Math.round(time / tickStep)) < 0.01
@@ -126,10 +141,10 @@ export function Timeline({
               const left = (segment.sourceStart / displayDuration) * 100
               const width = ((segment.sourceEnd - segment.sourceStart) / displayDuration) * 100
               return (
-                <div key={segment.id} data-clip="true" className={cn("group absolute inset-y-0 cursor-pointer overflow-visible rounded-md border bg-secondary/90 transition-colors", selected ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-foreground/40")} style={{ left: `${left}%`, width: `${width}%` }} onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setScrubbing(true); onSelectSegment(segment.id); scrub(event.clientX) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
+                <div key={segment.id} data-clip="true" className={cn("group absolute inset-y-0 cursor-pointer overflow-visible rounded-md border bg-secondary transition-colors", selected ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-foreground/40")} style={{ left: `${left}%`, width: `${width}%` }} onPointerDown={(event) => { if (event.button !== 0) return; event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId); setScrubbing(true); onSelectSegment(segment.id); scrub(event.clientX) }} onPointerMove={(event) => scrubbing && scrub(event.clientX)} onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); setScrubbing(false) }} onPointerCancel={() => setScrubbing(false)}>
                   <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
                     <div
-                      className="absolute inset-y-0 flex opacity-70"
+                      className="absolute inset-y-0 flex"
                       style={{
                         left: `${-(segment.sourceStart / (segment.sourceEnd - segment.sourceStart)) * 100}%`,
                         width: `${(displayDuration / (segment.sourceEnd - segment.sourceStart)) * 100}%`,
