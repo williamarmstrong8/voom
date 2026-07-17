@@ -7,25 +7,6 @@ import { useFfmpeg } from "@/hooks/use-ffmpeg"
 import { compositeToFile } from "@/lib/export"
 import { DEFAULT_CAMERA_LAYOUT, type SavedVideo } from "@/lib/studio-types"
 
-function formatDuration(seconds: number) {
-  const total = Math.max(0, Math.round(seconds))
-  const minutes = Math.floor(total / 60)
-  return `${minutes}:${String(total % 60).padStart(2, "0")}`
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString(undefined, {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })
-}
-
-function formatSize(bytes: number) {
-  const megabytes = bytes / 1024 / 1024
-  return megabytes >= 1000 ? `${(megabytes / 1024).toFixed(1)} GB` : `${megabytes.toFixed(0)} MB`
-}
-
 function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
@@ -155,18 +136,9 @@ export function VideoViewScreen({
   return (
     <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
-          <Button variant="secondary" size="icon" onClick={onBack} aria-label="Back to library">
-            <ArrowLeft className="size-4" />
-          </Button>
-          <div className="min-w-0">
-            <p className="text-label-12 text-muted-foreground">Video</p>
-            <h1 className="truncate text-heading-24 text-balance">{video.title}</h1>
-            <p className="text-copy-13 text-muted-foreground">
-              {formatDate(video.created_at)} · {formatDuration(video.duration_seconds)} · {formatSize(video.size_bytes)}
-            </p>
-          </div>
-        </div>
+        <Button variant="secondary" size="icon" onClick={onBack} aria-label="Back to library">
+          <ArrowLeft className="size-4" />
+        </Button>
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
             <Button
