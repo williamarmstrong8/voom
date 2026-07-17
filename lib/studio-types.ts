@@ -1,0 +1,63 @@
+// Shared types for the recording studio + editor.
+
+export type StudioMode = "dashboard" | "setup" | "recording" | "viewing" | "editing"
+
+/** A saved video record returned from the library API. */
+export interface SavedVideo {
+  id: string
+  title: string
+  pathname: string
+  url: string
+  thumbnail_url: string | null
+  duration_seconds: number
+  size_bytes: number
+  created_at: string
+}
+
+/** A recorded media track (screen or camera) with its object URL and blob. */
+export interface RecordedTrack {
+  blob: Blob
+  url: string
+  mimeType: string
+}
+
+/** Everything produced by a single recording session. */
+export interface RecordingResult {
+  screen: RecordedTrack
+  /** Camera is optional — the user can record screen only. */
+  camera: RecordedTrack | null
+  /** Measured wall-clock duration of the recording, in seconds. */
+  duration: number
+}
+
+/**
+ * Camera overlay placement within the editor/export frame.
+ *
+ * Position is stored as the offset of the overlay's bottom-left corner from the
+ * frame's bottom-left corner, expressed as a fraction of frame width/height so
+ * it stays correct across preview and export resolutions.
+ */
+export interface CameraLayout {
+  /** 0-1 fraction of frame width from the left edge to the overlay's left. */
+  left: number
+  /** 0-1 fraction of frame height from the bottom edge to the overlay's bottom. */
+  bottom: number
+  /** Overlay width as a 0-1 fraction of the frame width. */
+  width: number
+  /** Overlay shape: 16:9 rounded rectangle, 1:1 square, or 1:1 circle. */
+  shape: "rounded" | "square" | "circle"
+}
+
+/** Inclusive trim window in seconds. */
+export interface TrimRange {
+  start: number
+  end: number
+}
+
+export const DEFAULT_CAMERA_LAYOUT: CameraLayout = {
+  // Equal visible pixel padding in a 16:9 frame: 4% of width = 7.11% of height.
+  left: 0.04,
+  bottom: 0.0711,
+  width: 0.24,
+  shape: "square",
+}

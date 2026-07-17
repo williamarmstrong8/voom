@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Voom Recorder",
+  "version": "0.1.0",
+  "description": "Private recording controls, camera, and teleprompter overlays for Voom.",
+  "permissions": ["activeTab", "audioCapture", "offscreen", "scripting", "storage", "tabCapture", "tabs"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open Voom controls"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["camera-frame.html"],
+      "matches": ["http://*/*", "https://*/*"]
+    }
+  ]
+}
