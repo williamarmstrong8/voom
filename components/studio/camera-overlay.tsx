@@ -20,8 +20,8 @@ export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverla
   const [dragging, setDragging] = useState(false)
   const [equalSnap, setEqualSnap] = useState(false)
 
-  // rounded = 16:9, square & circle = 1:1.
-  const aspect = layout.shape === "rounded" ? 9 / 16 : 1
+  // Height-to-width ratio: an equilateral triangle is √3 / 2.
+  const aspect = layout.shape === "rounded" ? 9 / 16 : layout.shape === "triangle" ? Math.sqrt(3) / 2 : 1
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {

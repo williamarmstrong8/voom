@@ -564,7 +564,7 @@ function PreviewCameraBubble({
     }
   }, [stream])
 
-  const isSquareish = layout.shape !== "rounded"
+  const previewAspect = layout.shape === "rounded" ? "16 / 9" : layout.shape === "triangle" ? `2 / ${Math.sqrt(3)}` : "1 / 1"
   return (
     <div
       className="absolute overflow-hidden border-2 border-background"
@@ -572,7 +572,7 @@ function PreviewCameraBubble({
         left: `${layout.left * 100}%`,
         bottom: `${layout.bottom * 100}%`,
         width: `${layout.width * 100}%`,
-        aspectRatio: isSquareish ? "1 / 1" : "16 / 9",
+        aspectRatio: previewAspect,
         borderRadius: layout.shape === "circle" ? "9999px" : layout.shape === "triangle" ? "0" : "0.75rem",
         clipPath: layout.shape === "triangle" ? "polygon(50% 0%, 100% 100%, 0% 100%)" : undefined,
       }}
