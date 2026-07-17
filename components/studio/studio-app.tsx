@@ -129,6 +129,7 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
       })
       if (!ok) return
       setExtensionActive(true)
+      if (prompterEnabled && supported) start()
       setMode("recording")
       return
     }
@@ -246,9 +247,36 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
     }
   }, [listening, stop, start, reset])
 
+  // Keep the extension's private overlay on the exact line selected by the
+  // app's speech recognizer. The extension cannot share React state directly,
+  // so line text is pushed whenever voice alignment advances the cursor.
+  useEffect(() => {
+    if (!extensionActive || !prompterEnabled) return
+    const { words, lines } = scriptRef.current
+    if (words.length === 0) {
+      void extension.updatePrompter({ currentLine: null, nextLine: null })
+      return
+    }
+    const clamped = Math.min(cursor, words.length - 1)
+    const lineIndex = words[clamped]?.lineIndex ?? 0
+    void extension.updatePrompter({
+      currentLine: lines[lineIndex]?.text ?? null,
+      nextLine: lines[lineIndex + 1]?.text ?? null,
+    })
+  }, [cursor, extensionActive, prompterEnabled])
+
   const toggleRecordingPause = useCallback(() => {
     if (extensionActive) {
-      void (extension.status === "paused" ? extension.resume() : extension.pause())
+      if (extension.status === "paused") {
+        void extension.resume()
+        if (prompterEnabled && supported) {
+          reset()
+          start()
+        }
+      } else {
+        if (listening) stop()
+        void extension.pause()
+      }
       return
     }
     if (recorder.paused) {
@@ -398,6 +426,8 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
           micSupported={supported}
           extensionAvailable={extension.available}
           extensionVersion={extension.version}
+          pipOpen={pip.isOpen}
+          pipContainer={pip.container}
           onStart={startRecording}
           onBack={goToDashboard}
           error={recorder.error}

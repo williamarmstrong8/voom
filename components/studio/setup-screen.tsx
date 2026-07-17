@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -59,6 +60,8 @@ interface SetupScreenProps {
   micSupported: boolean
   extensionAvailable: boolean
   extensionVersion: string | null
+  pipOpen: boolean
+  pipContainer: HTMLElement | null
   onStart: () => void
   onBack?: () => void
   error: string | null
@@ -89,6 +92,8 @@ export function SetupScreen({
   micSupported,
   extensionAvailable,
   extensionVersion,
+  pipOpen,
+  pipContainer,
   onStart,
   onBack,
   error,
@@ -125,7 +130,17 @@ export function SetupScreen({
   const previewScript = useMemo(() => parseScript(notes), [notes])
 
   return (
-    <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
+    <>
+      {prompterEnabled && pipOpen && pipContainer &&
+        createPortal(
+          <TeleprompterPopoutPreview
+            currentLine={previewScript.lines[0]?.text ?? ""}
+            nextLine={previewScript.lines[1]?.text}
+            fontSize={fontSize}
+          />,
+          pipContainer,
+        )}
+      <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           {onBack && (
@@ -177,7 +192,7 @@ export function SetupScreen({
               <PreviewCameraBubble stream={cameraStream} layout={layout} />
             )}
 
-            {prompterEnabled && previewScript.lines.length > 0 && (
+            {prompterEnabled && (
               <TeleprompterPreview
                 currentLine={previewScript.lines[0]?.text ?? ""}
                 nextLine={previewScript.lines[1]?.text}
@@ -532,7 +547,8 @@ export function SetupScreen({
           </section>
         </div>
       )}
-    </main>
+      </main>
+    </>
   )
 }
 
@@ -582,6 +598,34 @@ function PreviewCameraBubble({
   )
 }
 
+function TeleprompterPopoutPreview({
+  currentLine,
+  nextLine,
+  fontSize,
+}: {
+  currentLine: string
+  nextLine?: string
+  fontSize: number
+}) {
+  return (
+    <main className="flex h-screen w-screen items-center overflow-hidden border border-border/70 bg-background/90 px-6 py-4 text-foreground backdrop-blur-2xl">
+      <div className="w-full min-w-0 font-medium tracking-tight">
+        <p className="w-full text-pretty text-left leading-[1.3]" style={{ fontSize }}>
+          {currentLine || "Your script gets displayed here."}
+        </p>
+        {nextLine && (
+          <p
+            className="mt-2 w-full text-pretty text-left leading-[1.35] text-muted-foreground"
+            style={{ fontSize: Math.max(16, fontSize * 0.72) }}
+          >
+            {nextLine}
+          </p>
+        )}
+      </div>
+    </main>
+  )
+}
+
 function TeleprompterPreview({
   currentLine,
   nextLine,
@@ -604,7 +648,7 @@ function TeleprompterPreview({
           className="text-pretty font-medium leading-[1.3] tracking-tight"
           style={{ fontSize: `clamp(16px, ${fontSize * 0.08}vw, ${fontSize}px)` }}
         >
-          {currentLine}
+          {currentLine || "Your script gets displayed here."}
         </p>
         {nextLine && (
           <p
