@@ -257,7 +257,10 @@ export function VideoViewScreen({
                   width: `${cameraLayout.width * 100}%`,
                   aspectRatio: String(cameraAspect),
                   left: `${cameraLayout.left * 100}%`,
-                  bottom: `${cameraLayout.bottom * 100}%`,
+                  // Native video controls occupy the bottom of the frame. Keep
+                  // the saved relative placement while reserving that control
+                  // strip so the camera never blocks playback interactions.
+                  bottom: `calc(${cameraLayout.bottom * 100}% + 3.5rem)`,
                   clipPath: cameraLayout.shape === "triangle"
                     ? "polygon(50% 0%, 100% 100%, 0% 100%)"
                     : undefined,
