@@ -56,6 +56,7 @@ export function VideoViewScreen({
   const playbackUrl = video.kind === "project" ? video.screen_url : video.url
   const baseUrl = playbackUrl ?? video.url
   const [videoReady, setVideoReady] = useState(false)
+  const [screenAspect, setScreenAspect] = useState(16 / 9)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -197,7 +198,10 @@ export function VideoViewScreen({
 
       <section className="flex flex-1 items-center justify-center overflow-hidden" aria-label="Video player">
         {playbackUrl ? (
-          <div className="relative aspect-video w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm">
+          <div
+            className="relative w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm"
+            style={{ aspectRatio: String(screenAspect) }}
+          >
             {!videoReady && (
               <div className="absolute inset-0 flex items-center justify-center bg-secondary" aria-label="Loading video">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -209,6 +213,12 @@ export function VideoViewScreen({
               controls={videoReady}
               playsInline
               preload="auto"
+              onLoadedMetadata={(event) => {
+                const { videoWidth, videoHeight } = event.currentTarget
+                if (videoWidth > 0 && videoHeight > 0) {
+                  setScreenAspect(videoWidth / videoHeight)
+                }
+              }}
               onLoadedData={() => setVideoReady(true)}
               onPlay={playProjectTracks}
               onPause={pauseProjectTracks}
@@ -229,7 +239,7 @@ export function VideoViewScreen({
                   audioRef.current.muted = videoRef.current.muted
                 }
               }}
-              className={`h-full w-full object-contain transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
+              className={`h-full w-full object-fill transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
             >
               <track kind="captions" />
             </video>
