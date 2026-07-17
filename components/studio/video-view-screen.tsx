@@ -42,8 +42,12 @@ export function VideoViewScreen({
   // Projects play their raw screen track (no flattened file exists until export);
   // legacy rows play their stored flattened file.
   const playbackUrl = video.kind === "project" ? video.screen_url : video.url
-  const downloadUrl = playbackUrl ?? video.url
-  const downloadExt = downloadUrl && downloadUrl.includes("mp4") ? "mp4" : "webm"
+  const baseUrl = playbackUrl ?? video.url
+  // `&download=1` makes the CDN serve an attachment disposition; the browser's
+  // own `download` attribute can't force it since bytes come from a cross-origin
+  // (CDN) redirect target.
+  const downloadUrl = baseUrl ? `${baseUrl}&download=1` : undefined
+  const downloadExt = baseUrl && baseUrl.includes("mp4") ? "mp4" : "webm"
 
   return (
     <main className="flex min-h-[calc(100svh-3rem)] w-full flex-col gap-6 px-5 py-8 lg:px-8">
@@ -63,7 +67,7 @@ export function VideoViewScreen({
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
             <a
-              href={downloadUrl ?? undefined}
+              href={downloadUrl}
               download={`${video.title}.${downloadExt}`}
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-secondary px-3 text-button-14 text-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
