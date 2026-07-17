@@ -14,6 +14,11 @@ interface ExtensionConfig {
   fontSize: number
 }
 
+interface PrompterUpdate {
+  currentLine: string | null
+  nextLine: string | null
+}
+
 interface PendingRequest {
   resolve: (value: boolean) => void
   timeout: number
@@ -88,7 +93,7 @@ export function useVoomExtension(onRecording: (recording: RecordingResult) => vo
     return () => window.clearInterval(interval)
   }, [status])
 
-  const command = useCallback((name: string, config?: ExtensionConfig) => {
+  const command = useCallback((name: string, config?: ExtensionConfig | PrompterUpdate) => {
     return new Promise<boolean>((resolve) => {
       const requestId = crypto.randomUUID()
       const timeout = window.setTimeout(() => {
@@ -112,6 +117,7 @@ export function useVoomExtension(onRecording: (recording: RecordingResult) => vo
     start: (config: ExtensionConfig) => command("VOOM_START", config),
     pause: () => command("VOOM_PAUSE"),
     resume: () => command("VOOM_RESUME"),
+    updatePrompter: (update: PrompterUpdate) => command("VOOM_UPDATE_PROMPTER", update),
     stop: () => command("VOOM_STOP"),
   }
 }

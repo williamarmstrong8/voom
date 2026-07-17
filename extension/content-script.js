@@ -29,7 +29,7 @@
       .time{padding:3px 0 5px;color:var(--text);font-size:12px;font-weight:650;font-variant-numeric:tabular-nums}
       .icon{display:flex;width:38px;height:38px;align-items:center;justify-content:center;border:0;border-radius:50%;background:transparent;color:var(--text);cursor:pointer;transition:background .15s,transform .15s}.icon:hover{background:rgba(255,255,255,.1)}.icon:active{transform:scale(.94)}.icon.stop:hover{background:#e5484d}.icon svg,.drag svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.icon.stop svg{fill:currentColor;stroke:none;width:14px;height:14px}.divider{width:30px;height:1px;background:var(--line);margin:2px 0}
       .camera{right:24px;bottom:24px;width:184px;aspect-ratio:1;border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#09090b}.camera video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}.camera.error{display:grid;place-items:center;padding:16px;color:var(--muted);font-size:12px;text-align:center}
-      .prompter{left:50%;bottom:24px;transform:translateX(-50%);width:min(680px,calc(100vw - 64px));max-height:180px;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:rgba(17,17,19,.94);padding:18px 22px;backdrop-filter:blur(20px)}.prompter p{margin:0;color:var(--text);font-size:var(--font-size);font-weight:600;line-height:1.42;text-wrap:balance}.prompter .eyebrow{display:block;margin-bottom:7px;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em;text-transform:uppercase}
+      .prompter{left:50%;bottom:24px;transform:translateX(-50%);width:min(680px,calc(100vw - 64px));max-height:180px;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:rgba(17,17,19,.94);padding:18px 22px;backdrop-filter:blur(20px)}.prompter p{margin:0;color:var(--text);font-size:var(--font-size);font-weight:600;line-height:1.42;text-wrap:balance}.prompter .next{margin-top:8px;color:var(--muted);font-size:calc(var(--font-size) * .72);font-weight:500}.prompter .eyebrow{display:block;margin-bottom:7px;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.12em;text-transform:uppercase}
       @media(max-width:640px){.controls{left:12px;top:12px}.camera{right:12px;bottom:12px;width:132px}.prompter{bottom:156px;width:calc(100vw - 24px)}}
     `
   }
@@ -56,9 +56,32 @@
     return Date.now() - state.startedAt
   }
 
+  function scriptLines() {
+    const words = String(state.script || "").trim().split(/\s+/).filter(Boolean)
+    const lines = []
+    let current = []
+    let length = 0
+    for (const word of words) {
+      if (current.length && length + word.length + 1 > 52) {
+        lines.push(current.join(" "))
+        current = []
+        length = 0
+      }
+      current.push(word)
+      length += word.length + (current.length > 1 ? 1 : 0)
+    }
+    if (current.length) lines.push(current.join(" "))
+    return lines
+  }
+
   function currentLine() {
-    const lines = String(state.script || "").split(/\n+/).map((line) => line.trim()).filter(Boolean)
-    return lines[Math.min(state.cursor || 0, Math.max(0, lines.length - 1))] || "Your teleprompter is ready."
+    if (state.currentLine) return state.currentLine
+    return scriptLines()[0] || "Your script gets displayed here."
+  }
+
+  function nextLine() {
+    if (state.nextLine) return state.nextLine
+    return scriptLines()[1] || ""
   }
 
   function render() {
@@ -80,7 +103,7 @@
         <button class="icon stop" type="button" aria-label="Stop recording">${icons.stop}</button>
       </section>
       ${state.cameraEnabled ? '<section class="camera" aria-label="Camera preview"><video autoplay muted playsinline></video></section>' : ""}
-      ${state.teleprompterEnabled ? `<section class="prompter" style="--font-size:${Math.max(16, Math.min(48, state.fontSize || 24))}px"><span class="eyebrow">Teleprompter</span><p>${escapeHtml(currentLine())}</p></section>` : ""}
+      ${state.teleprompterEnabled ? `<section class="prompter" style="--font-size:${Math.max(16, Math.min(48, state.fontSize || 24))}px"><span class="eyebrow">Teleprompter</span><p>${escapeHtml(currentLine())}</p>${nextLine() ? `<p class="next">${escapeHtml(nextLine())}</p>` : ""}</section>` : ""}
     `
     shadow.append(layer)
     layer.querySelector(".pause").addEventListener("click", () => send(state.status === "paused" ? "VOOM_RESUME" : "VOOM_PAUSE"))

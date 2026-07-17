@@ -89,7 +89,7 @@ export function PrompterPill({
               })}
             </p>
           ) : (
-            <p className="text-muted-foreground" style={{ fontSize }}>You&apos;re at the end of your notes.</p>
+            <p className="text-muted-foreground" style={{ fontSize }}>Your script gets displayed here.</p>
           )}
           {nextLine && (
             <p className="mt-2 w-full whitespace-normal break-normal text-left leading-[1.35] text-muted-foreground" style={{ fontSize: Math.max(16, fontSize * 0.72) }}>

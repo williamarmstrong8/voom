@@ -100,7 +100,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true
   }
   if (message?.type === MESSAGE.RESTART) {
-    publishState({ cursor: 0 }).then(() => sendResponse({ ok: true, state }))
+    publishState({ cursor: 0, currentLine: null, nextLine: null }).then(() => sendResponse({ ok: true, state }))
+    return true
+  }
+  if (message?.type === MESSAGE.UPDATE_PROMPTER) {
+    publishState({
+      currentLine: message.config?.currentLine ?? null,
+      nextLine: message.config?.nextLine ?? null,
+    }).then(() => sendResponse({ ok: true, state }))
     return true
   }
   if ([MESSAGE.PAUSE, MESSAGE.RESUME, MESSAGE.STOP].includes(message?.type)) {
