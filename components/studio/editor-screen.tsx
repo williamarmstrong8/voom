@@ -8,6 +8,7 @@ import {
   Download,
   Expand,
   Film,
+  ImageIcon,
   Loader2,
   Pause,
   Play,
@@ -28,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { CameraOverlay } from "@/components/studio/camera-overlay"
 import { Timeline } from "@/components/studio/timeline"
+import { ThumbnailGenerator } from "@/components/studio/thumbnail-generator"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
 import {
   DEFAULT_BRAND_KIT,
@@ -118,6 +120,7 @@ export function EditorScreen({
   const [playbackRate, setPlaybackRate] = useState(1)
   const [aspect, setAspect] = useState(16 / 9)
   const [frames, setFrames] = useState<string[]>([])
+  const [customThumbnail, setCustomThumbnail] = useState<Blob | null>(null)
   const framesForUrl = useRef<string | null>(null)
   const [segments, setSegments] = useState<EditorSegment[]>(
     initialState?.segments.map((segment) => ({
@@ -134,7 +137,7 @@ export function EditorScreen({
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>(initialState?.titleCards ?? [])
   const [brandKit] = useState(initialState?.brandKit ?? DEFAULT_BRAND_KIT)
-  const [activeTool, setActiveTool] = useState<"captions" | "camera" | "export">("captions")
+  const [activeTool, setActiveTool] = useState<"captions" | "camera" | "thumbnail" | "export">("captions")
 
   const [layout, setLayout] = useState<CameraLayout>(initialState?.camera.layout ?? initialLayout)
   const [cameraVisible, setCameraVisible] = useState(initialState?.camera.visible ?? hasCamera)
@@ -507,7 +510,7 @@ export function EditorScreen({
     try {
       setSavePhase("processing")
       // Cover thumbnail from the raw screen track (matches the library preview).
-      const thumbnail = await captureThumbnailFromBlob(recording.screen.blob, segments[0]?.sourceStart ?? 0)
+      const thumbnail = customThumbnail ?? await captureThumbnailFromBlob(recording.screen.blob, segments[0]?.sourceStart ?? 0)
 
       setSavePhase("uploading")
       const input = {
@@ -538,7 +541,7 @@ export function EditorScreen({
       )
       setSavePhase("error")
     }
-  }, [recording, segments, pause, title, trimmedDuration, buildEditorState, sourceVideo, onSaved])
+  }, [recording, segments, customThumbnail, pause, title, trimmedDuration, buildEditorState, sourceVideo, onSaved])
 
   useEffect(() => {
     renderKeyRef.current = null
@@ -681,10 +684,11 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
-          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-3" : "grid-cols-2")}>
+          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-4" : "grid-cols-3")}>
             {([
               ["captions", Captions, "CC"],
               ...(hasCamera ? [["camera", Video, "Camera"]] as const : []),
+              ["thumbnail", ImageIcon, "Thumbnail"],
               ["export", Download, "Export"],
             ] as const).map(([tool, Icon, label]) => (
               <button key={tool} type="button" onClick={() => setActiveTool(tool)} className={cn("flex flex-col items-center gap-1 rounded-sm px-1 py-2 text-[11px] font-medium transition-colors", activeTool === tool ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground")}>
@@ -789,6 +793,17 @@ export function EditorScreen({
                     bottom edges is equal.
                   </p>
                 </>
+              )}
+            </div>
+          )}
+
+          {activeTool === "thumbnail" && (
+            <div className="rounded-md border border-border bg-card p-4">
+              <ThumbnailGenerator frames={frames} title={title} onUse={setCustomThumbnail} />
+              {customThumbnail && (
+                <p className="mt-3 rounded-sm bg-secondary px-3 py-2 text-xs text-muted-foreground">
+                  Selected as this video&apos;s library cover. Save to library to apply it.
+                </p>
               )}
             </div>
           )}
