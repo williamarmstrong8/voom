@@ -375,7 +375,10 @@ function VideoCard({
           </Menu.Trigger>
           <Menu.Portal>
             <Menu.Positioner sideOffset={6} align="end" className="z-50 outline-none">
-              <Menu.Popup className="min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none transition data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
+              <Menu.Popup
+                data-card-action
+                className="min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none transition data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+              >
                 <Menu.Item
                   onClick={onRename}
                   className="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-copy-14 outline-none data-highlighted:bg-secondary"
