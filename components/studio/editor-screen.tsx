@@ -196,8 +196,11 @@ export function EditorScreen({
 
   const sourceToProjectTime = useCallback((sourceTime: number) => {
     let elapsed = 0
-    for (const segment of segments) {
-      if (sourceTime >= segment.sourceStart && sourceTime <= segment.sourceEnd) return elapsed + sourceTime - segment.sourceStart
+    for (const [index, segment] of segments.entries()) {
+      const isLast = index === segments.length - 1
+      if (sourceTime >= segment.sourceStart && (sourceTime < segment.sourceEnd || (isLast && sourceTime <= segment.sourceEnd))) {
+        return elapsed + sourceTime - segment.sourceStart
+      }
       if (sourceTime < segment.sourceStart) return elapsed
       elapsed += segment.sourceEnd - segment.sourceStart
     }
@@ -228,30 +231,45 @@ export function EditorScreen({
   }, [stopLoop])
 
   const tick = useCallback(() => {
-    const v = screenRef.current
-    if (!v) return
-    setCurrentTime(v.currentTime)
-    const segmentIndex = segments.findIndex((segment) => v.currentTime >= segment.sourceStart - 0.03 && v.currentTime <= segment.sourceEnd)
-    if (segments.length && segmentIndex >= 0 && v.currentTime >= segments[segmentIndex].sourceEnd - 0.03) {
-      const next = segments[segmentIndex + 1]
-      if (next) {
-        v.currentTime = next.sourceStart
-        if (cameraRef.current) cameraRef.current.currentTime = next.sourceStart
-        if (audioRef.current) audioRef.current.currentTime = next.sourceStart
-      }
-    }
-    if (v.currentTime >= trim.end || (segments.length > 0 && v.currentTime >= segments.at(-1)!.sourceEnd)) {
+    const screen = screenRef.current
+    if (!screen) return
+
+    const sourceTime = screen.currentTime
+    const lastEnd = segments.at(-1)?.sourceEnd ?? trim.end
+    if (sourceTime >= trim.end || sourceTime >= lastEnd) {
       pause()
-      v.currentTime = segments.at(-1)?.sourceEnd ?? trim.end
+      screen.currentTime = lastEnd
+      setCurrentTime(lastEnd)
       return
     }
+
+    const activeIndex = segments.findIndex((segment, index) => {
+      const isLast = index === segments.length - 1
+      return sourceTime >= segment.sourceStart && (sourceTime < segment.sourceEnd || (isLast && sourceTime <= segment.sourceEnd))
+    })
+
+    if (activeIndex < 0) {
+      const next = segments.find((segment) => sourceTime < segment.sourceStart)
+      if (next) {
+        screen.currentTime = next.sourceStart
+        if (cameraRef.current) cameraRef.current.currentTime = next.sourceStart
+        if (audioRef.current) audioRef.current.currentTime = next.sourceStart
+        setCurrentTime(next.sourceStart)
+      }
+    } else {
+      setCurrentTime(sourceTime)
+    }
+
     rafRef.current = requestAnimationFrame(tick)
   }, [segments, trim.end, pause])
 
   const play = useCallback(() => {
     const v = screenRef.current
     if (!v || !segments.length) return
-    const retained = segments.some((segment) => v.currentTime >= segment.sourceStart && v.currentTime < segment.sourceEnd - 0.05)
+    const retained = segments.some((segment, index) => {
+      const isLast = index === segments.length - 1
+      return v.currentTime >= segment.sourceStart && (v.currentTime < segment.sourceEnd || (isLast && v.currentTime <= segment.sourceEnd))
+    })
     if (!retained) {
       v.currentTime = segments[0].sourceStart
       if (cameraRef.current) cameraRef.current.currentTime = segments[0].sourceStart
@@ -653,22 +671,19 @@ export function EditorScreen({
               className={cn("h-full w-full object-contain", cameraOnly && "invisible")}
             />
 
-            {cameraOnly && recording.camera && (
-              <video
-                ref={cameraRef}
-                src={recording.camera.url}
-                muted
-                playsInline
-                className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
-              />
-            )}
-
             {recording.audio && (
               <audio ref={audioRef} src={recording.audio.url} preload="auto" className="hidden" />
             )}
 
-            {hasCamera && cameraVisible && !cameraOnly && (
-              <CameraOverlay layout={layout} onLayoutChange={setLayout}>
+            {hasCamera && (
+              <CameraOverlay
+                layout={cameraOnly ? { left: 0, bottom: 0, width: 1, shape: "square" } : layout}
+                onLayoutChange={cameraOnly ? undefined : setLayout}
+                className={cn(
+                  cameraOnly && "!inset-0 !h-full !w-full !rounded-none !border-0 !shadow-none",
+                  !cameraOnly && !cameraVisible && "hidden",
+                )}
+              >
                 <video
                   ref={cameraRef}
                   src={recording.camera!.url}

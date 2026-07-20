@@ -93,8 +93,8 @@ export function Timeline({
     return () => observer.disconnect()
   }, [])
 
-  // Zoom changes the amount of time visible inside a fixed viewport. Keep the
-  // current playhead in view while the underlying timeline becomes wider.
+  // Keep the playhead centered when zoom changes, but preserve the user's
+  // viewport while scrubbing so pointer movement stays relative to the visible range.
   useEffect(() => {
     const viewport = viewportRef.current
     const track = trackRef.current
@@ -102,7 +102,7 @@ export function Timeline({
     const playheadX = (currentTime / displayDuration) * track.scrollWidth
     const nextLeft = playheadX - viewport.clientWidth / 2
     viewport.scrollTo({ left: Math.max(0, nextLeft) })
-  }, [zoom, currentTime, displayDuration])
+  }, [zoom, displayDuration])
 
   const beginEdgeDrag = (id: string, edge: Edge, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return
