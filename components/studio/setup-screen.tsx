@@ -167,7 +167,12 @@ export function SetupScreen({
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Live preview stage */}
         <div className="flex flex-col gap-3">
-          <div className="relative aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
+          <div
+            className={cn(
+              "relative w-full overflow-hidden rounded-md border border-border bg-black",
+              !hasScreen && "aspect-video",
+            )}
+          >
             {hasScreen ? (
               <ScreenPreview stream={screenStream} />
             ) : (
@@ -538,7 +543,7 @@ function ScreenPreview({ stream }: { stream: MediaStream | null }) {
       void ref.current.play().catch(() => {})
     }
   }, [stream])
-  return <video ref={ref} muted playsInline className="h-full w-full object-contain" />
+  return <video ref={ref} muted playsInline className="block h-auto w-full" />
 }
 
 /** Camera overlay in the preview — shows exactly how it will sit in the video. */
