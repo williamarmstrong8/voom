@@ -55,13 +55,11 @@ interface DashboardProps {
   onRecord: () => void
   onOpenVideo: (video: SavedVideo) => void
   videos: SavedVideo[]
-  loading: boolean
-  error: boolean
   refresh: () => Promise<void>
   setVideos: React.Dispatch<React.SetStateAction<SavedVideo[]>>
 }
 
-export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refresh, setVideos }: DashboardProps) {
+export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }: DashboardProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // The video queued for deletion. Non-null means the confirm dialog is open.
   const [pendingDelete, setPendingDelete] = useState<SavedVideo | null>(null)
@@ -134,21 +132,7 @@ export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refre
         </div>
       </header>
 
-      {loading ? (
-        <div className="flex flex-1 items-center justify-center py-20 text-muted-foreground">
-          <Loader2 className="size-5 animate-spin" />
-          <span className="ml-2 text-sm">Loading your library…</span>
-        </div>
-      ) : error ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
-          <p className="text-sm text-muted-foreground">
-            Couldn&apos;t load your library.
-          </p>
-          <Button variant="secondary" onClick={() => void refresh()}>
-            Try again
-          </Button>
-        </div>
-      ) : videos.length === 0 ? (
+      {videos.length === 0 ? (
         <EmptyState onRecord={onRecord} />
       ) : (
         <section
