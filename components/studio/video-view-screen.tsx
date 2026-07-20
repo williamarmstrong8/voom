@@ -253,8 +253,12 @@ export function VideoViewScreen({
                 setPlaying(false)
                 pauseProjectTracks()
               }}
-              onEnded={() => {
+              onEnded={(event) => {
+                const mediaDuration = event.currentTarget.duration
+                const completedAt = Number.isFinite(mediaDuration) ? mediaDuration : duration
                 setPlaying(false)
+                setDuration(completedAt)
+                setCurrentTime(completedAt)
                 pauseProjectTracks()
               }}
               onSeeking={syncProjectTracks}
