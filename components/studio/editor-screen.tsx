@@ -120,6 +120,8 @@ export function EditorScreen({
   const [playbackRate, setPlaybackRate] = useState(1)
   const [aspect, setAspect] = useState(16 / 9)
   const [frames, setFrames] = useState<string[]>([])
+  const [thumbnailFrame, setThumbnailFrame] = useState<string | null>(null)
+  const [thumbnailFrameTime, setThumbnailFrameTime] = useState<number | null>(null)
   const [customThumbnail, setCustomThumbnail] = useState<Blob | null>(null)
   const framesForUrl = useRef<string | null>(null)
   const [segments, setSegments] = useState<EditorSegment[]>(
@@ -366,6 +368,63 @@ export function EditorScreen({
       selectedSegment.id,
     )
   }, [commitSegments, hasCamera, segments, selectedSegment])
+
+  const captureThumbnailFrame = useCallback(() => {
+    const screen = screenRef.current
+    const camera = cameraRef.current
+    if (!screen || screen.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
+
+    pause()
+    const canvas = document.createElement("canvas")
+    canvas.width = 1280
+    canvas.height = 720
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+
+    const drawCover = (video: HTMLVideoElement, x: number, y: number, width: number, height: number) => {
+      const sourceWidth = video.videoWidth || width
+      const sourceHeight = video.videoHeight || height
+      const scale = Math.max(width / sourceWidth, height / sourceHeight)
+      const drawnWidth = sourceWidth * scale
+      const drawnHeight = sourceHeight * scale
+      ctx.drawImage(video, x + (width - drawnWidth) / 2, y + (height - drawnHeight) / 2, drawnWidth, drawnHeight)
+    }
+
+    ctx.fillStyle = "#000"
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    if (cameraOnly && camera?.readyState && camera.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      ctx.save()
+      ctx.translate(canvas.width, 0)
+      ctx.scale(-1, 1)
+      drawCover(camera, 0, 0, canvas.width, canvas.height)
+      ctx.restore()
+    } else {
+      ctx.drawImage(screen, 0, 0, canvas.width, canvas.height)
+      if (cameraVisible && camera?.readyState && camera.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+        const width = canvas.width * layout.width
+        const ratio = layout.shape === "rounded" ? 9 / 16 : layout.shape === "triangle" ? Math.sqrt(3) / 2 : 1
+        const height = width * ratio
+        const x = canvas.width * layout.left
+        const y = canvas.height - canvas.height * layout.bottom - height
+        ctx.save()
+        if (layout.shape === "circle") {
+          ctx.beginPath(); ctx.arc(x + width / 2, y + height / 2, width / 2, 0, Math.PI * 2); ctx.clip()
+        } else if (layout.shape === "triangle") {
+          ctx.beginPath(); ctx.moveTo(x + width / 2, y); ctx.lineTo(x + width, y + height); ctx.lineTo(x, y + height); ctx.closePath(); ctx.clip()
+        } else if (layout.shape === "rounded") {
+          ctx.beginPath(); ctx.roundRect(x, y, width, height, 14); ctx.clip()
+        }
+        ctx.translate(x + width, y)
+        ctx.scale(-1, 1)
+        drawCover(camera, 0, 0, width, height)
+        ctx.restore()
+      }
+    }
+
+    setThumbnailFrame(canvas.toDataURL("image/jpeg", 0.9))
+    setThumbnailFrameTime(currentTime)
+    setCustomThumbnail(null)
+  }, [cameraOnly, cameraVisible, currentTime, layout, pause])
 
   // Keep the playhead within the trim window when the in-point moves past it.
   useEffect(() => {
@@ -666,6 +725,21 @@ export function EditorScreen({
             </span>
           </div>
 
+          {activeTool === "thumbnail" && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Thumbnail frame</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  Scrub to the exact moment you want, then capture the composed screen and camera view.
+                </p>
+              </div>
+              <Button size="sm" onClick={captureThumbnailFrame} className="shrink-0 gap-2">
+                <ImageIcon className="size-3.5" />
+                Use frame at {formatTransportTime(sourceToProjectTime(currentTime))}
+              </Button>
+            </div>
+          )}
+
           <Timeline
             sourceDuration={duration}
             currentTime={currentTime}
@@ -799,7 +873,12 @@ export function EditorScreen({
 
           {activeTool === "thumbnail" && (
             <div className="rounded-md border border-border bg-card p-4">
-              <ThumbnailGenerator frames={frames} title={title} onUse={setCustomThumbnail} />
+              <ThumbnailGenerator
+                frame={thumbnailFrame}
+                frameTime={thumbnailFrameTime}
+                title={title}
+                onUse={setCustomThumbnail}
+              />
               {customThumbnail && (
                 <p className="mt-3 rounded-sm bg-secondary px-3 py-2 text-xs text-muted-foreground">
                   Selected as this video&apos;s library cover. Save to library to apply it.
