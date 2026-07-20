@@ -1,4 +1,4 @@
-import { generateImage } from "ai"
+import { generateText } from "ai"
 import { NextResponse } from "next/server"
 
 export const runtime = "nodejs"
@@ -22,19 +22,34 @@ export async function POST(request: Request) {
     }
     const frameBytes = Uint8Array.from(Buffer.from(frame.slice(separator + 1), "base64"))
 
-    const result = await generateImage({
-      model: "google/gemini-3.1-flash-image-preview",
-      prompt: {
-        text: `Create a polished 16:9 YouTube/video thumbnail using the attached composed recording frame as the visual source. Topic: ${summary}. Minimal Vercel design language: crisp black, white and neutral gray, strong negative space, subtle grid or light geometry, premium developer-tool aesthetic, one clear focal point. Preserve the recognizable screen and presenter/camera subject matter from the source frame. Do not draw any logos, brand marks, watermarks, UI chrome, or unreadable text; exact logos will be added separately. Leave clean breathing room in the top-right for brand marks.`,
-        images: [frameBytes],
+    const result = await generateText({
+      model: "google/gemini-3.1-flash-image",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Create one polished 16:9 YouTube/video thumbnail using the attached composed recording frame as the visual source. Topic: ${summary}. Minimal Vercel design language: crisp black, white and neutral gray, strong negative space, subtle grid or light geometry, premium developer-tool aesthetic, one clear focal point. Preserve the recognizable screen and presenter/camera subject matter from the source frame, including the exact camera overlay shape. Do not draw any logos, brand marks, watermarks, UI chrome, or unreadable text; exact logos will be added separately. Leave clean breathing room in the top-right for brand marks. Return an image.`,
+            },
+            { type: "image", image: frameBytes, mediaType: "image/jpeg" },
+          ],
+        },
+      ],
+      providerOptions: {
+        google: {
+          responseModalities: ["IMAGE"],
+          imageConfig: { aspectRatio: "16:9" },
+        },
       },
-      aspectRatio: "16:9",
-      n: 1,
     })
 
-    return NextResponse.json({
-      image: `data:${result.image.mediaType};base64,${result.image.base64}`,
-    })
+    const image = result.files.find((file) => file.mediaType.startsWith("image/"))
+    if (!image) {
+      return NextResponse.json({ error: "The image model returned no thumbnail. Try again." }, { status: 502 })
+    }
+
+    return NextResponse.json({ image: `data:${image.mediaType};base64,${image.base64}` })
   } catch (error) {
     console.error("[v0] thumbnail generation failed:", error)
     const message = error instanceof Error ? error.message : ""
