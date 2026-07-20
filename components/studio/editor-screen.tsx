@@ -49,6 +49,7 @@ import {
   updateProjectInLibrary,
 } from "@/lib/upload-video"
 import {
+  CAMERA_SIZE_OPTIONS,
   DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
   type EditorState,
@@ -847,24 +848,30 @@ export function EditorScreen({
                 />
               </div>
 
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Size</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {Math.round(layout.width * 100)}%
-                    </span>
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs text-muted-foreground">Size</span>
+                    <div className="grid grid-cols-3 gap-1 rounded-md bg-secondary p-1" aria-label="Camera size">
+                      {CAMERA_SIZE_OPTIONS.map((option) => {
+                        const active = Math.abs(layout.width - option.width) < 0.001
+                        return (
+                          <button
+                            key={option.label}
+                            type="button"
+                            onClick={() => setLayout((current) => ({ ...current, width: option.width }))}
+                            aria-pressed={active}
+                            className={cn(
+                              "rounded-sm px-2 py-1.5 text-xs font-medium transition-colors",
+                              active
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min={12}
-                    max={40}
-                    step={1}
-                    value={Math.round(layout.width * 100)}
-                    onChange={(e) =>
-                      setLayout((l) => ({ ...l, width: Number(e.target.value) / 100 }))
-                    }
-                    aria-label="Camera size"
-                    className="w-full accent-primary"
-                  />
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                     Drag the camera in the preview. It snaps when the gap to the left and
                     bottom edges is equal.

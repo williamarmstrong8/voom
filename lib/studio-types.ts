@@ -94,6 +94,12 @@ export interface TrimRange {
   end: number
 }
 
+export const CAMERA_SIZE_OPTIONS = [
+  { label: "Small", width: 0.16 },
+  { label: "Medium", width: 0.21 },
+  { label: "Large", width: 0.28 },
+] as const
+
 export const DEFAULT_CAMERA_LAYOUT: CameraLayout = {
   // Equal visible pixel padding in a 16:9 frame: 3% of width = 5.33% of height.
   left: 0.03,
