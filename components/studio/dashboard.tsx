@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Menu } from "@base-ui/react/menu"
 import {
   Clock,
@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { SavedVideo } from "@/lib/studio-types"
+import { cn } from "@/lib/utils"
 
 function formatDuration(seconds: number) {
   const s = Math.max(0, Math.round(seconds))
@@ -241,6 +242,62 @@ export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refre
   )
 }
 
+function LibraryCameraPreview({ video }: { video: SavedVideo }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  const state = video.editor_state
+  const firstSegment = state?.segments[0]
+  const cameraOnly = firstSegment?.composition === "camera-only"
+  const visible = cameraOnly || state?.camera.visible
+  const layout = state?.camera.layout
+
+  useEffect(() => {
+    const element = ref.current
+    if (!element || !firstSegment) return
+    const seekToCoverFrame = () => {
+      element.currentTime = Math.min(firstSegment.sourceStart + 0.05, firstSegment.sourceEnd)
+    }
+    element.addEventListener("loadeddata", seekToCoverFrame)
+    if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) seekToCoverFrame()
+    return () => element.removeEventListener("loadeddata", seekToCoverFrame)
+  }, [firstSegment])
+
+  if (!video.camera_url || !state || !visible || !layout) return null
+
+  const shapeClass =
+    layout.shape === "circle"
+      ? "rounded-full"
+      : layout.shape === "triangle"
+        ? "[clip-path:polygon(50%_0%,100%_100%,0%_100%)]"
+        : layout.shape === "rounded"
+          ? "rounded-lg"
+          : "rounded-md"
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute z-10 overflow-hidden border border-white/30 bg-black shadow-md",
+        cameraOnly ? "inset-0 border-0" : shapeClass,
+      )}
+      style={cameraOnly ? undefined : {
+        left: `${layout.left * 100}%`,
+        bottom: `${layout.bottom * 100}%`,
+        width: `${layout.width * 100}%`,
+        aspectRatio: layout.shape === "rounded" ? "16 / 9" : "1 / 1",
+      }}
+      aria-hidden="true"
+    >
+      <video
+        ref={ref}
+        src={video.camera_url}
+        muted
+        playsInline
+        preload="metadata"
+        className="h-full w-full -scale-x-100 object-cover"
+      />
+    </div>
+  )
+}
+
 function VideoCard({
   video,
   deleting,
@@ -277,12 +334,13 @@ function VideoCard({
               <VideoIcon className="size-8 text-muted-foreground" />
             </div>
           )}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
+          <LibraryCameraPreview video={video} />
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
             <div className="flex size-12 items-center justify-center rounded-full bg-background/90">
               <Play className="size-5 translate-x-0.5 text-foreground" />
             </div>
           </div>
-          <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
+          <span className="absolute bottom-2 right-2 z-30 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
             {formatDuration(video.duration_seconds)}
           </span>
         </div>
