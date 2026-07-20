@@ -819,18 +819,38 @@ export function EditorScreen({
                   <Video className="size-4 text-muted-foreground" />
                   Camera
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setCameraVisible((v) => !v)}
-                  className={cn(
-                    "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
-                    cameraVisible
-                      ? "bg-primary/15 text-primary"
-                      : "bg-secondary text-muted-foreground",
+                <div className="flex items-center gap-1">
+                  {(Math.abs(layout.left - DEFAULT_CAMERA_LAYOUT.left) > 0.001 ||
+                    Math.abs(layout.bottom - DEFAULT_CAMERA_LAYOUT.bottom) > 0.001) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLayout((current) => ({
+                          ...current,
+                          left: DEFAULT_CAMERA_LAYOUT.left,
+                          bottom: DEFAULT_CAMERA_LAYOUT.bottom,
+                        }))
+                      }
+                      aria-label="Reset camera position"
+                      title="Reset camera position"
+                      className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <RotateCcw className="size-3.5" />
+                    </button>
                   )}
-                >
-                  {cameraVisible ? "Shown" : "Hidden"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setCameraVisible((v) => !v)}
+                    className={cn(
+                      "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+                      cameraVisible
+                        ? "bg-primary/15 text-primary"
+                        : "bg-secondary text-muted-foreground",
+                    )}
+                  >
+                    {cameraVisible ? "Shown" : "Hidden"}
+                  </button>
+                </div>
               </div>
 
               {cameraVisible && (
