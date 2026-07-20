@@ -387,8 +387,8 @@ export function EditorScreen({
 
     pause()
     const canvas = document.createElement("canvas")
-    canvas.width = 1280
-    canvas.height = 720
+    canvas.width = 1920
+    canvas.height = 1080
     const ctx = canvas.getContext("2d")
     if (!ctx) return
 
@@ -433,7 +433,7 @@ export function EditorScreen({
       }
     }
 
-    setThumbnailFrame(canvas.toDataURL("image/jpeg", 0.9))
+    setThumbnailFrame(canvas.toDataURL("image/png"))
     setThumbnailFrameTime(currentTime)
     setCustomThumbnail(null)
   }, [cameraOnly, cameraVisible, currentTime, layout, pause])
