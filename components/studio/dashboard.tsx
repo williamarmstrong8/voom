@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react"
 import { Menu } from "@base-ui/react/menu"
 import {
+  Check,
   Clock,
   Loader2,
   MoreHorizontal,
   Pencil,
   Play,
   Plus,
+  Tags,
   Trash2,
   Video as VideoIcon,
 } from "lucide-react"
@@ -22,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { SavedVideo } from "@/lib/studio-types"
+import { VERCEL_PRODUCT_TAGS, type SavedVideo } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 function formatDuration(seconds: number) {
@@ -67,6 +69,61 @@ export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }:
   const [renameTitle, setRenameTitle] = useState("")
   const [renaming, setRenaming] = useState(false)
   const [renameError, setRenameError] = useState<string | null>(null)
+  // Tag editor: the video being tagged, a working draft, and save status.
+  const [pendingTags, setPendingTags] = useState<SavedVideo | null>(null)
+  const [tagDraft, setTagDraft] = useState<string[]>([])
+  const [savingTags, setSavingTags] = useState(false)
+  const [tagError, setTagError] = useState<string | null>(null)
+  // Active library filter — a video matches if it carries every selected tag.
+  const [activeFilters, setActiveFilters] = useState<string[]>([])
+
+  function beginTagEdit(video: SavedVideo) {
+    setPendingTags(video)
+    setTagDraft(video.tags)
+    setTagError(null)
+  }
+
+  function toggleDraftTag(tag: string) {
+    setTagDraft((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag],
+    )
+  }
+
+  async function confirmTags() {
+    const target = pendingTags
+    if (!target || savingTags) return
+    setSavingTags(true)
+    setTagError(null)
+    try {
+      const response = await fetch(`/api/videos/${target.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: tagDraft }),
+      })
+      if (!response.ok) throw new Error(`Tag update failed: ${response.status}`)
+      const { video } = (await response.json()) as { video: SavedVideo }
+      setVideos((current) => current.map((item) => (item.id === video.id ? video : item)))
+      setPendingTags(null)
+    } catch {
+      setTagError("Couldn’t update tags. Please try again.")
+    } finally {
+      setSavingTags(false)
+    }
+  }
+
+  function toggleFilter(tag: string) {
+    setActiveFilters((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag],
+    )
+  }
+
+  // Tags actually in use, ordered by the canonical catalog, for the filter bar.
+  const usedTags = VERCEL_PRODUCT_TAGS.filter((tag) =>
+    videos.some((video) => video.tags.includes(tag)),
+  )
+  const visibleVideos = activeFilters.length
+    ? videos.filter((video) => activeFilters.every((tag) => video.tags.includes(tag)))
+    : videos
 
   function beginRename(video: SavedVideo) {
     setPendingRename(video)
@@ -132,14 +189,58 @@ export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }:
         </div>
       </header>
 
+      {usedTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by product">
+          <button
+            type="button"
+            onClick={() => setActiveFilters([])}
+            aria-pressed={activeFilters.length === 0}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              activeFilters.length === 0
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )}
+          >
+            All
+          </button>
+          {usedTags.map((tag) => {
+            const active = activeFilters.includes(tag)
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleFilter(tag)}
+                aria-pressed={active}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
+              >
+                {tag}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {videos.length === 0 ? (
         <EmptyState onRecord={onRecord} />
+      ) : visibleVideos.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border py-16 text-center">
+          <p className="text-sm text-muted-foreground">No videos match the selected tags.</p>
+          <Button variant="secondary" size="sm" onClick={() => setActiveFilters([])}>
+            Clear filters
+          </Button>
+        </div>
       ) : (
         <section
           className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
           aria-label="Saved videos"
         >
-          {videos.map((video) => (
+          {visibleVideos.map((video) => (
             <VideoCard
               key={video.id}
               video={video}
@@ -155,11 +256,59 @@ export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }:
               onRenameCancel={() => {
                 if (!renaming) setPendingRename(null)
               }}
+              onEditTags={() => beginTagEdit(video)}
               onDelete={() => setPendingDelete(video)}
             />
           ))}
         </section>
       )}
+
+      <Dialog
+        open={pendingTags !== null}
+        onOpenChange={(open) => {
+          if (!open && !savingTags) setPendingTags(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Tag this video</DialogTitle>
+            <DialogDescription>
+              Choose the Vercel products this recording covers. These power library filtering.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-wrap gap-2">
+            {VERCEL_PRODUCT_TAGS.map((tag) => {
+              const selected = tagDraft.includes(tag)
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleDraftTag(tag)}
+                  aria-pressed={selected}
+                  disabled={savingTags}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
+                    selected
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )}
+                >
+                  {selected && <Check className="size-3" />}
+                  {tag}
+                </button>
+              )
+            })}
+          </div>
+          {tagError && <p className="text-copy-13 text-destructive">{tagError}</p>}
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" disabled={savingTags}>Cancel</Button>} />
+            <Button type="button" onClick={() => void confirmTags()} disabled={savingTags} className="gap-2">
+              {savingTags && <Loader2 className="size-4 animate-spin" />}
+              Save tags
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={pendingDelete !== null}
@@ -263,6 +412,7 @@ function VideoCard({
   onRenameTitleChange,
   onRenameSave,
   onRenameCancel,
+  onEditTags,
   onDelete,
 }: {
   video: SavedVideo
@@ -276,6 +426,7 @@ function VideoCard({
   onRenameTitleChange: (title: string) => void
   onRenameSave: () => void
   onRenameCancel: () => void
+  onEditTags: () => void
   onDelete: () => void
 }) {
   return (
@@ -359,6 +510,18 @@ function VideoCard({
             {formatDate(video.created_at)}
             {formatSize(video.size_bytes) && ` · ${formatSize(video.size_bytes)}`}
           </p>
+          {video.tags.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1">
+              {video.tags.map((tag) => (
+                <li
+                  key={tag}
+                  className="rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] font-medium leading-none text-muted-foreground"
+                >
+                  {tag}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <Menu.Root>
           <Menu.Trigger
@@ -385,6 +548,13 @@ function VideoCard({
                 >
                   <Pencil className="size-4" />
                   Rename
+                </Menu.Item>
+                <Menu.Item
+                  onClick={onEditTags}
+                  className="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-copy-14 outline-none data-highlighted:bg-secondary"
+                >
+                  <Tags className="size-4" />
+                  Edit tags
                 </Menu.Item>
                 <Menu.Item
                   onClick={onDelete}

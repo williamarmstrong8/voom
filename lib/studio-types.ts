@@ -32,6 +32,36 @@ export interface EditorState {
   mimeTypes: { screen: string; camera: string | null; audio: string | null }
 }
 
+/**
+ * Canonical Vercel product categories a video can be tagged with. Tags are
+ * constrained to this list so filtering and badges stay consistent.
+ */
+export const VERCEL_PRODUCT_TAGS = [
+  "AI Gateway",
+  "AI SDK",
+  "eve",
+  "Workflows",
+  "v0",
+  "Next.js",
+  "Turborepo",
+  "Fluid Compute",
+  "Sandbox",
+  "Blob",
+  "Postgres",
+  "Edge Network",
+  "Firewall",
+  "Observability",
+  "Analytics",
+  "Deployments",
+] as const
+
+export type VercelProductTag = (typeof VERCEL_PRODUCT_TAGS)[number]
+
+/** Type guard: is a string one of the canonical product tags? */
+export function isVercelProductTag(value: string): value is VercelProductTag {
+  return (VERCEL_PRODUCT_TAGS as readonly string[]).includes(value)
+}
+
 /** A saved video record returned from the library API. */
 export interface SavedVideo {
   id: string
@@ -50,6 +80,8 @@ export interface SavedVideo {
   audio_url: string | null
   /** Restored editor state for project rows. */
   editor_state: EditorState | null
+  /** Vercel product categories this video is tagged with. */
+  tags: string[]
 }
 
 /** A recorded media track (screen or camera) with its object URL and blob. */

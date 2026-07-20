@@ -30,13 +30,15 @@ export interface VideoRow {
   audio_pathname: string | null
   /** Serialized editor state (trim, segments, camera layout, captions, etc.). */
   editor_state: EditorState | null
+  /** Vercel product categories, stored as a JSON string array. */
+  tags: string[] | null
 }
 
 /** Re-exported from studio-types so route handlers can import from one place. */
 export type EditorState = SharedEditorState
 
 const SELECT_COLUMNS = `id, title, pathname, url, thumbnail_url, duration_seconds, size_bytes,
-  created_at, kind, screen_pathname, camera_pathname, audio_pathname, editor_state`
+  created_at, kind, screen_pathname, camera_pathname, audio_pathname, editor_state, tags`
 
 // Private blobs are served through /api/file, never via a public URL.
 const serveUrl = (pathname: string | null) =>
@@ -61,6 +63,7 @@ export function rowToSavedVideo(row: VideoRow): SavedVideo {
     camera_url: serveUrl(row.camera_pathname),
     audio_url: serveUrl(row.audio_pathname),
     editor_state: row.editor_state,
+    tags: Array.isArray(row.tags) ? row.tags : [],
   }
 }
 
@@ -78,7 +81,8 @@ export function ensureVideosSchema(): Promise<void> {
          ADD COLUMN IF NOT EXISTS screen_pathname text,
          ADD COLUMN IF NOT EXISTS camera_pathname text,
          ADD COLUMN IF NOT EXISTS audio_pathname text,
-         ADD COLUMN IF NOT EXISTS editor_state jsonb`,
+         ADD COLUMN IF NOT EXISTS editor_state jsonb,
+         ADD COLUMN IF NOT EXISTS tags jsonb NOT NULL DEFAULT '[]'::jsonb`,
     )
     .then(() => undefined)
     .catch((error) => {
