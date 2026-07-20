@@ -211,13 +211,19 @@ export function VideoViewScreen({
           >
             {!playerReady && (
               <div
-                className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-secondary"
+                className="absolute inset-0 z-50 flex items-center justify-center bg-background"
                 role="status"
                 aria-live="polite"
                 aria-label="Loading video"
               >
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                <span className="text-copy-13 text-muted-foreground">Loading video…</span>
+                <span
+                  className="size-8 animate-pulse bg-foreground"
+                  style={{
+                    mask: "url(https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/vercel/mono.svg) center / contain no-repeat",
+                    WebkitMask: "url(https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/vercel/mono.svg) center / contain no-repeat",
+                  }}
+                  aria-hidden="true"
+                />
               </div>
             )}
             <video
