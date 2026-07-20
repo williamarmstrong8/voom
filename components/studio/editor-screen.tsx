@@ -796,10 +796,19 @@ export function EditorScreen({
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-medium">Captions</p>
                 <Button size="sm" variant="secondary" onClick={() => void generateCaptions()} disabled={captioning}>
-                  {captioning ? <Loader2 className="size-3.5 animate-spin" /> : captions.length ? "Regenerate" : "Auto caption"}
+                  {captioning ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Transcribing
+                    </span>
+                  ) : captions.length ? "Regenerate" : "Auto caption"}
                 </Button>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">Generate timed captions, then correct the transcript below.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {captioning
+                  ? "Generating accurate timed captions from your recording. This may take a moment."
+                  : "Generate accurate timed captions, then correct the transcript below."}
+              </p>
               {captionError && <p className="mt-2 text-xs text-destructive-foreground">{captionError}</p>}
               <div className="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
                 {captions.map((caption) => (

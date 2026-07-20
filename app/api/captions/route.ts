@@ -2,7 +2,7 @@ import { gateway, transcribe } from "ai"
 import { NextResponse } from "next/server"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+export const maxDuration = 120
 
 type TimedText = { text: string; startSecond: number; endSecond: number }
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "A recording is required" }, { status: 400 })
     }
 
-    const model = gateway.transcriptionModel("openai/gpt-4o-mini-transcribe")
+    const model = gateway.transcriptionModel("openai/gpt-4o-transcribe")
     let result: Awaited<ReturnType<typeof transcribe>> | null = null
     let lastError: unknown = null
 
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
 
     if (!result?.text.trim()) {
       if (candidates.every((media) => media.size > 25 * 1024 * 1024)) {
-        return NextResponse.json({ error: "This recording is too large to caption. Try a recording under 30 seconds." }, { status: 413 })
+        return NextResponse.json({ error: "This recording is too large to caption. Use a shorter recording or a smaller audio file." }, { status: 413 })
       }
       throw lastError ?? new Error("No speech was found in the recording audio")
     }
@@ -86,7 +86,14 @@ export async function POST(request: Request) {
       text: segment.text,
     }))
 
-    return NextResponse.json({ captions })
+    return NextResponse.json({
+      captions,
+      transcript: {
+        language: result.language,
+        durationInSeconds: result.durationInSeconds,
+        model: "openai/gpt-4o-transcribe",
+      },
+    })
   } catch (error) {
     console.error("[v0] caption transcription failed:", error)
     const message = error instanceof Error ? error.message : ""
