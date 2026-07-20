@@ -151,7 +151,7 @@ export function ThumbnailGenerator({ frame, frameTime, title, onUse }: Thumbnail
     <div className="flex flex-col gap-5">
       <div>
         <h3 className="text-sm font-semibold">Thumbnail</h3>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Use the selected video frame, then add a title or product marks.</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">The preview follows the current timeline frame. Scrub to choose another moment, then add a title or product mark.</p>
       </div>
 
       <div className="relative aspect-video overflow-hidden rounded-md border border-border bg-secondary">
@@ -160,8 +160,8 @@ export function ThumbnailGenerator({ frame, frameTime, title, onUse }: Thumbnail
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <ImageIcon className="size-6 text-muted-foreground" />
-            <p className="text-xs font-medium">No frame selected</p>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">Move the playhead and select the frame above the timeline.</p>
+            <p className="text-xs font-medium">Loading current frame</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">The thumbnail preview will appear from the current playhead position.</p>
           </div>
         )}
         {frame && frameTime !== null && !overlayTitle && logos.length === 0 && (

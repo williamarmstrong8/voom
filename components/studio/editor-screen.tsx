@@ -380,12 +380,12 @@ export function EditorScreen({
     )
   }, [commitSegments, hasCamera, segments, selectedSegment])
 
-  const captureThumbnailFrame = useCallback(() => {
+  const captureThumbnailFrame = useCallback((pausePlayback = true) => {
     const screen = screenRef.current
     const camera = cameraRef.current
     if (!screen || screen.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return
 
-    pause()
+    if (pausePlayback) pause()
     const canvas = document.createElement("canvas")
     canvas.width = 1920
     canvas.height = 1080
@@ -437,6 +437,12 @@ export function EditorScreen({
     setThumbnailFrameTime(currentTime)
     setCustomThumbnail(null)
   }, [cameraOnly, cameraVisible, currentTime, layout, pause])
+
+  useEffect(() => {
+    if (activeTool !== "thumbnail" || playing) return
+    const timer = window.setTimeout(() => captureThumbnailFrame(false), 120)
+    return () => window.clearTimeout(timer)
+  }, [activeTool, captureThumbnailFrame, currentTime, playing])
 
   // Keep the playhead within the trim window when the in-point moves past it.
   useEffect(() => {
@@ -736,21 +742,6 @@ export function EditorScreen({
               {hasCamera ? "Split, select a clip, then choose its view" : "Select a clip to trim or delete it"}
             </span>
           </div>
-
-          {activeTool === "thumbnail" && (
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2.5">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Thumbnail frame</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  Scrub to the exact moment you want, then capture the composed screen and camera view.
-                </p>
-              </div>
-              <Button size="sm" onClick={captureThumbnailFrame} className="shrink-0 gap-2">
-                <ImageIcon className="size-3.5" />
-                Use frame at {formatTransportTime(sourceToProjectTime(currentTime))}
-              </Button>
-            </div>
-          )}
 
           <Timeline
             sourceDuration={duration}
