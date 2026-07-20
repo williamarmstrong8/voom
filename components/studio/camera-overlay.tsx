@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils"
 
 interface CameraOverlayProps {
   layout: CameraLayout
-  onLayoutChange: (layout: CameraLayout) => void
+  onLayoutChange?: (layout: CameraLayout) => void
+  className?: string
   /** The camera <video> element (owned by the editor for playback sync). */
   children: React.ReactNode
 }
@@ -14,7 +15,7 @@ interface CameraOverlayProps {
 // How close (as a fraction of frame size) two values must be to snap together.
 const SNAP = 0.025
 
-export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverlayProps) {
+export function CameraOverlay({ layout, onLayoutChange, className, children }: CameraOverlayProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const dragOffset = useRef({ x: 0, y: 0 })
   const [dragging, setDragging] = useState(false)
@@ -25,6 +26,7 @@ export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverla
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      if (!onLayoutChange) return
       const parent = wrapRef.current?.parentElement
       const self = wrapRef.current
       if (!parent || !self) return
@@ -42,7 +44,7 @@ export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverla
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
-      if (!dragging) return
+      if (!dragging || !onLayoutChange) return
       const parent = wrapRef.current?.parentElement
       const self = wrapRef.current
       if (!parent || !self) return
@@ -114,6 +116,8 @@ export function CameraOverlay({ layout, onLayoutChange, children }: CameraOverla
                 ? "border-0"
                 : "rounded-sm",
           dragging && "ring-2 ring-primary",
+          !onLayoutChange && "cursor-default active:cursor-default",
+          className,
         )}
         style={{
           width: `${layout.width * 100}%`,

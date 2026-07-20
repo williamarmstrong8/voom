@@ -49,6 +49,7 @@ import {
   updateProjectInLibrary,
 } from "@/lib/upload-video"
 import {
+  CAMERA_SIZE_OPTIONS,
   DEFAULT_CAMERA_LAYOUT,
   type CameraLayout,
   type EditorState,
@@ -195,8 +196,11 @@ export function EditorScreen({
 
   const sourceToProjectTime = useCallback((sourceTime: number) => {
     let elapsed = 0
-    for (const segment of segments) {
-      if (sourceTime >= segment.sourceStart && sourceTime <= segment.sourceEnd) return elapsed + sourceTime - segment.sourceStart
+    for (const [index, segment] of segments.entries()) {
+      const isLast = index === segments.length - 1
+      if (sourceTime >= segment.sourceStart && (sourceTime < segment.sourceEnd || (isLast && sourceTime <= segment.sourceEnd))) {
+        return elapsed + sourceTime - segment.sourceStart
+      }
       if (sourceTime < segment.sourceStart) return elapsed
       elapsed += segment.sourceEnd - segment.sourceStart
     }
@@ -227,30 +231,45 @@ export function EditorScreen({
   }, [stopLoop])
 
   const tick = useCallback(() => {
-    const v = screenRef.current
-    if (!v) return
-    setCurrentTime(v.currentTime)
-    const segmentIndex = segments.findIndex((segment) => v.currentTime >= segment.sourceStart - 0.03 && v.currentTime <= segment.sourceEnd)
-    if (segments.length && segmentIndex >= 0 && v.currentTime >= segments[segmentIndex].sourceEnd - 0.03) {
-      const next = segments[segmentIndex + 1]
-      if (next) {
-        v.currentTime = next.sourceStart
-        if (cameraRef.current) cameraRef.current.currentTime = next.sourceStart
-        if (audioRef.current) audioRef.current.currentTime = next.sourceStart
-      }
-    }
-    if (v.currentTime >= trim.end || (segments.length > 0 && v.currentTime >= segments.at(-1)!.sourceEnd)) {
+    const screen = screenRef.current
+    if (!screen) return
+
+    const sourceTime = screen.currentTime
+    const lastEnd = segments.at(-1)?.sourceEnd ?? trim.end
+    if (sourceTime >= trim.end || sourceTime >= lastEnd) {
       pause()
-      v.currentTime = segments.at(-1)?.sourceEnd ?? trim.end
+      screen.currentTime = lastEnd
+      setCurrentTime(lastEnd)
       return
     }
+
+    const activeIndex = segments.findIndex((segment, index) => {
+      const isLast = index === segments.length - 1
+      return sourceTime >= segment.sourceStart && (sourceTime < segment.sourceEnd || (isLast && sourceTime <= segment.sourceEnd))
+    })
+
+    if (activeIndex < 0) {
+      const next = segments.find((segment) => sourceTime < segment.sourceStart)
+      if (next) {
+        screen.currentTime = next.sourceStart
+        if (cameraRef.current) cameraRef.current.currentTime = next.sourceStart
+        if (audioRef.current) audioRef.current.currentTime = next.sourceStart
+        setCurrentTime(next.sourceStart)
+      }
+    } else {
+      setCurrentTime(sourceTime)
+    }
+
     rafRef.current = requestAnimationFrame(tick)
   }, [segments, trim.end, pause])
 
   const play = useCallback(() => {
     const v = screenRef.current
     if (!v || !segments.length) return
-    const retained = segments.some((segment) => v.currentTime >= segment.sourceStart && v.currentTime < segment.sourceEnd - 0.05)
+    const retained = segments.some((segment, index) => {
+      const isLast = index === segments.length - 1
+      return v.currentTime >= segment.sourceStart && (v.currentTime < segment.sourceEnd || (isLast && v.currentTime <= segment.sourceEnd))
+    })
     if (!retained) {
       v.currentTime = segments[0].sourceStart
       if (cameraRef.current) cameraRef.current.currentTime = segments[0].sourceStart
@@ -652,22 +671,19 @@ export function EditorScreen({
               className={cn("h-full w-full object-contain", cameraOnly && "invisible")}
             />
 
-            {cameraOnly && recording.camera && (
-              <video
-                ref={cameraRef}
-                src={recording.camera.url}
-                muted
-                playsInline
-                className="absolute inset-0 h-full w-full -scale-x-100 object-cover"
-              />
-            )}
-
             {recording.audio && (
               <audio ref={audioRef} src={recording.audio.url} preload="auto" className="hidden" />
             )}
 
-            {hasCamera && cameraVisible && !cameraOnly && (
-              <CameraOverlay layout={layout} onLayoutChange={setLayout}>
+            {hasCamera && (
+              <CameraOverlay
+                layout={cameraOnly ? { left: 0, bottom: 0, width: 1, shape: "square" } : layout}
+                onLayoutChange={cameraOnly ? undefined : setLayout}
+                className={cn(
+                  cameraOnly && "!inset-0 !h-full !w-full !rounded-none !border-0 !shadow-none",
+                  !cameraOnly && !cameraVisible && "hidden",
+                )}
+              >
                 <video
                   ref={cameraRef}
                   src={recording.camera!.url}
@@ -780,10 +796,19 @@ export function EditorScreen({
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-medium">Captions</p>
                 <Button size="sm" variant="secondary" onClick={() => void generateCaptions()} disabled={captioning}>
-                  {captioning ? <Loader2 className="size-3.5 animate-spin" /> : captions.length ? "Regenerate" : "Auto caption"}
+                  {captioning ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="size-3.5 animate-spin" />
+                      Transcribing
+                    </span>
+                  ) : captions.length ? "Regenerate" : "Auto caption"}
                 </Button>
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">Generate timed captions, then correct the transcript below.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {captioning
+                  ? "Generating accurate timed captions from your recording. This may take a moment."
+                  : "Generate accurate timed captions, then correct the transcript below."}
+              </p>
               {captionError && <p className="mt-2 text-xs text-destructive-foreground">{captionError}</p>}
               <div className="mt-3 flex max-h-64 flex-col gap-2 overflow-y-auto">
                 {captions.map((caption) => (
@@ -803,18 +828,38 @@ export function EditorScreen({
                   <Video className="size-4 text-muted-foreground" />
                   Camera
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setCameraVisible((v) => !v)}
-                  className={cn(
-                    "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
-                    cameraVisible
-                      ? "bg-primary/15 text-primary"
-                      : "bg-secondary text-muted-foreground",
+                <div className="flex items-center gap-1">
+                  {(Math.abs(layout.left - DEFAULT_CAMERA_LAYOUT.left) > 0.001 ||
+                    Math.abs(layout.bottom - DEFAULT_CAMERA_LAYOUT.bottom) > 0.001) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLayout((current) => ({
+                          ...current,
+                          left: DEFAULT_CAMERA_LAYOUT.left,
+                          bottom: DEFAULT_CAMERA_LAYOUT.bottom,
+                        }))
+                      }
+                      aria-label="Reset camera position"
+                      title="Reset camera position"
+                      className="rounded-sm p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <RotateCcw className="size-3.5" />
+                    </button>
                   )}
-                >
-                  {cameraVisible ? "Shown" : "Hidden"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setCameraVisible((v) => !v)}
+                    className={cn(
+                      "rounded-sm px-2.5 py-1 text-xs font-medium transition-colors",
+                      cameraVisible
+                        ? "bg-primary/15 text-primary"
+                        : "bg-secondary text-muted-foreground",
+                    )}
+                  >
+                    {cameraVisible ? "Shown" : "Hidden"}
+                  </button>
+                </div>
               </div>
 
               {cameraVisible && (
@@ -847,24 +892,30 @@ export function EditorScreen({
                 />
               </div>
 
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Size</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {Math.round(layout.width * 100)}%
-                    </span>
+                  <div className="flex flex-col gap-2">
+                    <span className="text-xs text-muted-foreground">Size</span>
+                    <div className="grid grid-cols-3 gap-1 rounded-md bg-secondary p-1" aria-label="Camera size">
+                      {CAMERA_SIZE_OPTIONS.map((option) => {
+                        const active = Math.abs(layout.width - option.width) < 0.001
+                        return (
+                          <button
+                            key={option.label}
+                            type="button"
+                            onClick={() => setLayout((current) => ({ ...current, width: option.width }))}
+                            aria-pressed={active}
+                            className={cn(
+                              "rounded-sm px-2 py-1.5 text-xs font-medium transition-colors",
+                              active
+                                ? "bg-background text-foreground shadow-sm"
+                                : "text-muted-foreground hover:text-foreground",
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min={12}
-                    max={40}
-                    step={1}
-                    value={Math.round(layout.width * 100)}
-                    onChange={(e) =>
-                      setLayout((l) => ({ ...l, width: Number(e.target.value) / 100 }))
-                    }
-                    aria-label="Camera size"
-                    className="w-full accent-primary"
-                  />
                   <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
                     Drag the camera in the preview. It snaps when the gap to the left and
                     bottom edges is equal.

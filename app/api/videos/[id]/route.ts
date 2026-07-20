@@ -8,6 +8,7 @@ import {
   type EditorState,
   type VideoRow,
 } from "@/lib/db"
+import { isVercelProductTag } from "@/lib/studio-types"
 
 export const runtime = "nodejs"
 
@@ -112,23 +113,51 @@ export async function PUT(
   }
 }
 
-// Rename a saved video without touching its media blobs or editor state.
+// Update lightweight metadata (title and/or product tags) without touching the
+// media blobs or editor state.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params
   try {
-    const body = (await request.json()) as { title?: string }
-    const title = body.title?.trim()
-    if (!title) {
-      return NextResponse.json({ error: "Title is required" }, { status: 400 })
+    const body = (await request.json()) as { title?: string; tags?: string[] }
+
+    const sets: string[] = []
+    const values: unknown[] = []
+
+    if (body.title !== undefined) {
+      const title = body.title.trim()
+      if (!title) {
+        return NextResponse.json({ error: "Title is required" }, { status: 400 })
+      }
+      values.push(title)
+      sets.push(`title = $${values.length}`)
+    }
+
+    if (body.tags !== undefined) {
+      if (!Array.isArray(body.tags)) {
+        return NextResponse.json({ error: "Tags must be an array" }, { status: 400 })
+      }
+      // Constrain to the canonical catalog and de-duplicate while preserving order.
+      const seen = new Set<string>()
+      const tags = body.tags.filter(
+        (tag): tag is string =>
+          typeof tag === "string" && isVercelProductTag(tag) && !seen.has(tag) && (seen.add(tag), true),
+      )
+      values.push(JSON.stringify(tags))
+      sets.push(`tags = $${values.length}::jsonb`)
+    }
+
+    if (sets.length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 })
     }
 
     await ensureVideosSchema()
+    values.push(id)
     const { rows } = await pool.query<VideoRow>(
-      `UPDATE videos SET title = $1 WHERE id = $2 RETURNING ${SELECT_COLUMNS}`,
-      [title, id],
+      `UPDATE videos SET ${sets.join(", ")} WHERE id = $${values.length} RETURNING ${SELECT_COLUMNS}`,
+      values,
     )
     if (rows.length === 0) {
       return NextResponse.json({ error: "Not found" }, { status: 404 })
@@ -136,8 +165,8 @@ export async function PATCH(
 
     return NextResponse.json({ video: rowToSavedVideo(rows[0]) })
   } catch (error) {
-    console.error("[v0] rename video failed:", error)
-    return NextResponse.json({ error: "Failed to rename video" }, { status: 500 })
+    console.error("[v0] update video metadata failed:", error)
+    return NextResponse.json({ error: "Failed to update video" }, { status: 500 })
   }
 }
 

@@ -1,14 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Menu } from "@base-ui/react/menu"
 import {
+  Check,
   Clock,
   Loader2,
   MoreHorizontal,
   Pencil,
   Play,
   Plus,
+  Tags,
   Trash2,
   Video as VideoIcon,
 } from "lucide-react"
@@ -22,7 +24,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import type { SavedVideo } from "@/lib/studio-types"
+import { VERCEL_PRODUCT_TAGS, type SavedVideo } from "@/lib/studio-types"
+import { cn } from "@/lib/utils"
 
 function formatDuration(seconds: number) {
   const s = Math.max(0, Math.round(seconds))
@@ -54,13 +57,11 @@ interface DashboardProps {
   onRecord: () => void
   onOpenVideo: (video: SavedVideo) => void
   videos: SavedVideo[]
-  loading: boolean
-  error: boolean
   refresh: () => Promise<void>
   setVideos: React.Dispatch<React.SetStateAction<SavedVideo[]>>
 }
 
-export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refresh, setVideos }: DashboardProps) {
+export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }: DashboardProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // The video queued for deletion. Non-null means the confirm dialog is open.
   const [pendingDelete, setPendingDelete] = useState<SavedVideo | null>(null)
@@ -68,6 +69,61 @@ export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refre
   const [renameTitle, setRenameTitle] = useState("")
   const [renaming, setRenaming] = useState(false)
   const [renameError, setRenameError] = useState<string | null>(null)
+  // Tag editor: the video being tagged, a working draft, and save status.
+  const [pendingTags, setPendingTags] = useState<SavedVideo | null>(null)
+  const [tagDraft, setTagDraft] = useState<string[]>([])
+  const [savingTags, setSavingTags] = useState(false)
+  const [tagError, setTagError] = useState<string | null>(null)
+  // Active library filter — a video matches if it carries every selected tag.
+  const [activeFilters, setActiveFilters] = useState<string[]>([])
+
+  function beginTagEdit(video: SavedVideo) {
+    setPendingTags(video)
+    setTagDraft(video.tags)
+    setTagError(null)
+  }
+
+  function toggleDraftTag(tag: string) {
+    setTagDraft((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag],
+    )
+  }
+
+  async function confirmTags() {
+    const target = pendingTags
+    if (!target || savingTags) return
+    setSavingTags(true)
+    setTagError(null)
+    try {
+      const response = await fetch(`/api/videos/${target.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: tagDraft }),
+      })
+      if (!response.ok) throw new Error(`Tag update failed: ${response.status}`)
+      const { video } = (await response.json()) as { video: SavedVideo }
+      setVideos((current) => current.map((item) => (item.id === video.id ? video : item)))
+      setPendingTags(null)
+    } catch {
+      setTagError("Couldn’t update tags. Please try again.")
+    } finally {
+      setSavingTags(false)
+    }
+  }
+
+  function toggleFilter(tag: string) {
+    setActiveFilters((current) =>
+      current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag],
+    )
+  }
+
+  // Tags actually in use, ordered by the canonical catalog, for the filter bar.
+  const usedTags = VERCEL_PRODUCT_TAGS.filter((tag) =>
+    videos.some((video) => video.tags.includes(tag)),
+  )
+  const visibleVideos = activeFilters.length
+    ? videos.filter((video) => activeFilters.every((tag) => video.tags.includes(tag)))
+    : videos
 
   function beginRename(video: SavedVideo) {
     setPendingRename(video)
@@ -133,34 +189,74 @@ export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refre
         </div>
       </header>
 
-      {loading ? (
-        <div className="flex flex-1 items-center justify-center py-20 text-muted-foreground">
-          <Loader2 className="size-5 animate-spin" />
-          <span className="ml-2 text-sm">Loading your library…</span>
+      {usedTags.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filter by product">
+          <button
+            type="button"
+            onClick={() => setActiveFilters([])}
+            aria-pressed={activeFilters.length === 0}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              activeFilters.length === 0
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )}
+          >
+            All
+          </button>
+          {usedTags.map((tag) => {
+            const active = activeFilters.includes(tag)
+            return (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleFilter(tag)}
+                aria-pressed={active}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                )}
+              >
+                {tag}
+              </button>
+            )
+          })}
         </div>
-      ) : error ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
-          <p className="text-sm text-muted-foreground">
-            Couldn&apos;t load your library.
-          </p>
-          <Button variant="secondary" onClick={() => void refresh()}>
-            Try again
+      )}
+
+      {videos.length === 0 ? (
+        <EmptyState onRecord={onRecord} />
+      ) : visibleVideos.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border py-16 text-center">
+          <p className="text-sm text-muted-foreground">No videos match the selected tags.</p>
+          <Button variant="secondary" size="sm" onClick={() => setActiveFilters([])}>
+            Clear filters
           </Button>
         </div>
-      ) : videos.length === 0 ? (
-        <EmptyState onRecord={onRecord} />
       ) : (
         <section
           className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3"
           aria-label="Saved videos"
         >
-          {videos.map((video) => (
+          {visibleVideos.map((video) => (
             <VideoCard
               key={video.id}
               video={video}
               deleting={deletingId === video.id}
+              renaming={pendingRename?.id === video.id}
+              renameTitle={renameTitle}
+              renameError={pendingRename?.id === video.id ? renameError : null}
+              savingRename={renaming && pendingRename?.id === video.id}
               onOpen={() => onOpenVideo(video)}
               onRename={() => beginRename(video)}
+              onRenameTitleChange={setRenameTitle}
+              onRenameSave={() => void confirmRename()}
+              onRenameCancel={() => {
+                if (!renaming) setPendingRename(null)
+              }}
+              onEditTags={() => beginTagEdit(video)}
               onDelete={() => setPendingDelete(video)}
             />
           ))}
@@ -168,42 +264,49 @@ export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refre
       )}
 
       <Dialog
-        open={pendingRename !== null}
+        open={pendingTags !== null}
         onOpenChange={(open) => {
-          if (!open && !renaming) setPendingRename(null)
+          if (!open && !savingTags) setPendingTags(null)
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename video</DialogTitle>
-            <DialogDescription>Choose a new name for this recording.</DialogDescription>
+            <DialogTitle>Tag this video</DialogTitle>
+            <DialogDescription>
+              Choose the Vercel products this recording covers. These power library filtering.
+            </DialogDescription>
           </DialogHeader>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void confirmRename()
-            }}
-          >
-            <label className="flex flex-col gap-2 text-label-13">
-              Video name
-              <input
-                autoFocus
-                value={renameTitle}
-                onChange={(event) => setRenameTitle(event.target.value)}
-                disabled={renaming}
-                className="h-10 rounded-md border border-border bg-background px-3 text-copy-14 text-foreground outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              />
-            </label>
-            {renameError && <p className="text-copy-13 text-destructive">{renameError}</p>}
-            <DialogFooter>
-              <DialogClose render={<Button type="button" variant="outline" disabled={renaming}>Cancel</Button>} />
-              <Button type="submit" disabled={!renameTitle.trim() || renaming} className="gap-2">
-                {renaming && <Loader2 className="size-4 animate-spin" />}
-                Save name
-              </Button>
-            </DialogFooter>
-          </form>
+          <div className="flex flex-wrap gap-2">
+            {VERCEL_PRODUCT_TAGS.map((tag) => {
+              const selected = tagDraft.includes(tag)
+              return (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => toggleDraftTag(tag)}
+                  aria-pressed={selected}
+                  disabled={savingTags}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
+                    selected
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )}
+                >
+                  {selected && <Check className="size-3" />}
+                  {tag}
+                </button>
+              )
+            })}
+          </div>
+          {tagError && <p className="text-copy-13 text-destructive">{tagError}</p>}
+          <DialogFooter>
+            <DialogClose render={<Button type="button" variant="outline" disabled={savingTags}>Cancel</Button>} />
+            <Button type="button" onClick={() => void confirmTags()} disabled={savingTags} className="gap-2">
+              {savingTags && <Loader2 className="size-4 animate-spin" />}
+              Save tags
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -241,27 +344,107 @@ export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refre
   )
 }
 
+function LibraryCameraPreview({ video }: { video: SavedVideo }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  const state = video.editor_state
+  const firstSegment = state?.segments[0]
+  const cameraOnly = firstSegment?.composition === "camera-only"
+  const visible = cameraOnly || state?.camera.visible
+  const layout = state?.camera.layout
+
+  useEffect(() => {
+    const element = ref.current
+    if (!element || !firstSegment) return
+    const seekToCoverFrame = () => {
+      element.currentTime = Math.min(firstSegment.sourceStart + 0.05, firstSegment.sourceEnd)
+    }
+    element.addEventListener("loadeddata", seekToCoverFrame)
+    if (element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) seekToCoverFrame()
+    return () => element.removeEventListener("loadeddata", seekToCoverFrame)
+  }, [firstSegment])
+
+  if (!video.camera_url || !state || !visible || !layout) return null
+
+  const shapeClass =
+    layout.shape === "circle"
+      ? "rounded-full"
+      : layout.shape === "triangle"
+        ? "[clip-path:polygon(50%_0%,100%_100%,0%_100%)]"
+        : layout.shape === "rounded"
+          ? "rounded-lg"
+          : "rounded-md"
+
+  return (
+    <div
+      className={cn(
+        "pointer-events-none absolute z-10 overflow-hidden border border-white/30 bg-black shadow-md",
+        cameraOnly ? "inset-0 border-0" : shapeClass,
+      )}
+      style={cameraOnly ? undefined : {
+        left: `${layout.left * 100}%`,
+        bottom: `${layout.bottom * 100}%`,
+        width: `${layout.width * 100}%`,
+        aspectRatio: layout.shape === "rounded" ? "16 / 9" : "1 / 1",
+      }}
+      aria-hidden="true"
+    >
+      <video
+        ref={ref}
+        src={video.camera_url}
+        muted
+        playsInline
+        preload="metadata"
+        className="h-full w-full -scale-x-100 object-cover"
+      />
+    </div>
+  )
+}
+
 function VideoCard({
   video,
   deleting,
+  renaming,
+  renameTitle,
+  renameError,
+  savingRename,
   onOpen,
   onRename,
+  onRenameTitleChange,
+  onRenameSave,
+  onRenameCancel,
+  onEditTags,
   onDelete,
 }: {
   video: SavedVideo
   deleting: boolean
+  renaming: boolean
+  renameTitle: string
+  renameError: string | null
+  savingRename: boolean
   onOpen: () => void
   onRename: () => void
+  onRenameTitleChange: (title: string) => void
+  onRenameSave: () => void
+  onRenameCancel: () => void
+  onEditTags: () => void
   onDelete: () => void
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-md border border-border bg-card transition-colors hover:border-primary/40">
-      <button
-        type="button"
-        onClick={onOpen}
-        className="block w-full text-left"
-        aria-label={`Play ${video.title}`}
-      >
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Play ${video.title}`}
+      onPointerDown={(event) => {
+        if (event.button === 0 && !(event.target as HTMLElement).closest("[data-card-action]")) onOpen()
+      }}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && !(event.target as HTMLElement).closest("[data-card-action]")) {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+      className="group relative cursor-pointer touch-manipulation overflow-hidden rounded-md border border-border bg-card outline-none transition-colors hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring"
+    >
         <div className="relative aspect-video w-full overflow-hidden bg-secondary">
           {video.thumbnail_url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -277,28 +460,72 @@ function VideoCard({
               <VideoIcon className="size-8 text-muted-foreground" />
             </div>
           )}
-          <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
+          <LibraryCameraPreview video={video} />
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
             <div className="flex size-12 items-center justify-center rounded-full bg-background/90">
               <Play className="size-5 translate-x-0.5 text-foreground" />
             </div>
           </div>
-          <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
+          <span className="absolute bottom-2 right-2 z-30 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium tabular-nums text-white">
             {formatDuration(video.duration_seconds)}
           </span>
         </div>
-      </button>
 
       <div className="flex items-start justify-between gap-2 p-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{video.title}</p>
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <form
+              data-card-action
+              className="flex items-center gap-1"
+              onSubmit={(event) => {
+                event.preventDefault()
+                onRenameSave()
+              }}
+            >
+              <input
+                autoFocus
+                value={renameTitle}
+                onChange={(event) => onRenameTitleChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") onRenameCancel()
+                }}
+                disabled={savingRename}
+                aria-label="Video name"
+                className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-2 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={!renameTitle.trim() || savingRename}
+                className="rounded-sm px-2 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50"
+              >
+                {savingRename ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
+              </button>
+            </form>
+          ) : (
+            <p className="truncate text-sm font-medium">{video.title}</p>
+          )}
+          {renameError && <p className="mt-1 text-xs text-destructive">{renameError}</p>}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             {formatDate(video.created_at)}
             {formatSize(video.size_bytes) && ` · ${formatSize(video.size_bytes)}`}
           </p>
+          {video.tags.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1">
+              {video.tags.map((tag) => (
+                <li
+                  key={tag}
+                  className="rounded-full border border-border bg-secondary px-2 py-0.5 text-[11px] font-medium leading-none text-muted-foreground"
+                >
+                  {tag}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <Menu.Root>
           <Menu.Trigger
+            data-card-action
             disabled={deleting}
             aria-label={`More actions for ${video.title}`}
             className="shrink-0 rounded-md p-1.5 text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
@@ -311,13 +538,23 @@ function VideoCard({
           </Menu.Trigger>
           <Menu.Portal>
             <Menu.Positioner sideOffset={6} align="end" className="z-50 outline-none">
-              <Menu.Popup className="min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none transition data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0">
+              <Menu.Popup
+                data-card-action
+                className="min-w-40 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none transition data-ending-style:scale-95 data-ending-style:opacity-0 data-starting-style:scale-95 data-starting-style:opacity-0"
+              >
                 <Menu.Item
                   onClick={onRename}
                   className="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-copy-14 outline-none data-highlighted:bg-secondary"
                 >
                   <Pencil className="size-4" />
                   Rename
+                </Menu.Item>
+                <Menu.Item
+                  onClick={onEditTags}
+                  className="flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-copy-14 outline-none data-highlighted:bg-secondary"
+                >
+                  <Tags className="size-4" />
+                  Edit tags
                 </Menu.Item>
                 <Menu.Item
                   onClick={onDelete}

@@ -32,6 +32,36 @@ export interface EditorState {
   mimeTypes: { screen: string; camera: string | null; audio: string | null }
 }
 
+/**
+ * Canonical Vercel product categories a video can be tagged with. Tags are
+ * constrained to this list so filtering and badges stay consistent.
+ */
+export const VERCEL_PRODUCT_TAGS = [
+  "AI Gateway",
+  "AI SDK",
+  "eve",
+  "Workflows",
+  "v0",
+  "Next.js",
+  "Turborepo",
+  "Fluid Compute",
+  "Sandbox",
+  "Blob",
+  "Postgres",
+  "Edge Network",
+  "Firewall",
+  "Observability",
+  "Analytics",
+  "Deployments",
+] as const
+
+export type VercelProductTag = (typeof VERCEL_PRODUCT_TAGS)[number]
+
+/** Type guard: is a string one of the canonical product tags? */
+export function isVercelProductTag(value: string): value is VercelProductTag {
+  return (VERCEL_PRODUCT_TAGS as readonly string[]).includes(value)
+}
+
 /** A saved video record returned from the library API. */
 export interface SavedVideo {
   id: string
@@ -50,6 +80,8 @@ export interface SavedVideo {
   audio_url: string | null
   /** Restored editor state for project rows. */
   editor_state: EditorState | null
+  /** Vercel product categories this video is tagged with. */
+  tags: string[]
 }
 
 /** A recorded media track (screen or camera) with its object URL and blob. */
@@ -94,10 +126,16 @@ export interface TrimRange {
   end: number
 }
 
+export const CAMERA_SIZE_OPTIONS = [
+  { label: "Small", width: 0.16 },
+  { label: "Medium", width: 0.21 },
+  { label: "Large", width: 0.28 },
+] as const
+
 export const DEFAULT_CAMERA_LAYOUT: CameraLayout = {
-  // Equal visible pixel padding in a 16:9 frame: 4% of width = 7.11% of height.
-  left: 0.04,
-  bottom: 0.0711,
-  width: 0.24,
+  // Equal visible pixel padding in a 16:9 frame: 3% of width = 5.33% of height.
+  left: 0.03,
+  bottom: 0.0533,
+  width: 0.21,
   shape: "square",
 }

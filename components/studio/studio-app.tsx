@@ -53,8 +53,6 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   const [recording, setRecording] = useState<RecordingResult | null>(null)
   const [selectedVideo, setSelectedVideo] = useState<SavedVideo | null>(null)
   const [videos, setVideos] = useState<SavedVideo[]>(initialVideos)
-  const [videosLoading, setVideosLoading] = useState(false)
-  const [videosError, setVideosError] = useState(false)
   const [extensionActive, setExtensionActive] = useState(false)
   const [editLoading, setEditLoading] = useState(false)
   const [editLoadError, setEditLoadError] = useState<string | null>(null)
@@ -97,18 +95,14 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   const pip = useDocumentPip()
 
   const refreshVideos = useCallback(async () => {
-    setVideosLoading(true)
-    setVideosError(false)
     try {
       const response = await fetch("/api/videos", { cache: "no-store" })
       if (!response.ok) throw new Error(`Library request failed: ${response.status}`)
       const data = (await response.json()) as { videos?: SavedVideo[] }
       setVideos(data.videos ?? [])
     } catch (error) {
+      // Keep the current library visible if a background refresh fails.
       console.error("[v0] failed to refresh library:", error)
-      setVideosError(true)
-    } finally {
-      setVideosLoading(false)
     }
   }, [])
 
@@ -286,7 +280,7 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   }, [])
 
   const renderShell = (content: ReactNode) => (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <AppSidebar
         mode={mode}
         onLibrary={goToDashboard}
@@ -401,10 +395,8 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
       <Dashboard
         onRecord={startNewRecording}
         onOpenVideo={openSavedVideo}
-        videos={videos}
-        loading={videosLoading}
-        error={videosError}
-        refresh={refreshVideos}
+          videos={videos}
+          refresh={refreshVideos}
         setVideos={setVideos}
       />,
     )

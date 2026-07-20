@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button"
 import { useMediaDevices, type DeviceOption } from "@/hooks/use-media-devices"
 import type { CameraOptions } from "@/hooks/use-recorder"
 import { parseScript } from "@/lib/prompter"
-import type { CameraLayout } from "@/lib/studio-types"
+import { CAMERA_SIZE_OPTIONS, type CameraLayout } from "@/lib/studio-types"
 import { cn } from "@/lib/utils"
 
 const SAMPLE = `Hi everyone, thanks for joining today. I'm excited to walk you through what we've been building.
@@ -167,7 +167,12 @@ export function SetupScreen({
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
         {/* Live preview stage */}
         <div className="flex flex-col gap-3">
-          <div className="relative aspect-video w-full overflow-hidden rounded-md border border-border bg-black">
+          <div
+            className={cn(
+              "relative w-full overflow-hidden rounded-md border border-border bg-black",
+              !hasScreen && "aspect-video",
+            )}
+          >
             {hasScreen ? (
               <ScreenPreview stream={screenStream} />
             ) : (
@@ -314,23 +319,29 @@ export function SetupScreen({
                   </div>
                 </div>
 
-                <div>
-                  <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="text-muted-foreground">Size</span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {Math.round(layout.width * 100)}%
-                    </span>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs text-muted-foreground">Size</span>
+                  <div className="grid grid-cols-3 gap-1 rounded-md bg-secondary p-1" aria-label="Camera size">
+                    {CAMERA_SIZE_OPTIONS.map((option) => {
+                      const active = Math.abs(layout.width - option.width) < 0.001
+                      return (
+                        <button
+                          key={option.label}
+                          type="button"
+                          onClick={() => onLayout({ ...layout, width: option.width })}
+                          aria-pressed={active}
+                          className={cn(
+                            "rounded-sm px-2 py-1.5 text-xs font-medium transition-colors",
+                            active
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    })}
                   </div>
-                  <input
-                    type="range"
-                    min={12}
-                    max={40}
-                    step={1}
-                    value={Math.round(layout.width * 100)}
-                    onChange={(e) => onLayout({ ...layout, width: Number(e.target.value) / 100 })}
-                    aria-label="Camera size"
-                    className="w-full accent-primary"
-                  />
                 </div>
                 </>}
               </div>
@@ -538,7 +549,7 @@ function ScreenPreview({ stream }: { stream: MediaStream | null }) {
       void ref.current.play().catch(() => {})
     }
   }, [stream])
-  return <video ref={ref} muted playsInline className="h-full w-full object-contain" />
+  return <video ref={ref} muted playsInline className="block h-auto w-full" />
 }
 
 /** Camera overlay in the preview — shows exactly how it will sit in the video. */

@@ -56,16 +56,26 @@ export function VideoViewScreen({
   const playbackUrl = video.kind === "project" ? video.screen_url : video.url
   const baseUrl = playbackUrl ?? video.url
   const [videoReady, setVideoReady] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [audioReady, setAudioReady] = useState(false)
   const [screenAspect, setScreenAspect] = useState(16 / 9)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(video.duration_seconds)
+  const [duration, setDuration] = useState(() => {
+    const savedSegments = video.kind === "project" ? video.editor_state?.segments ?? [] : []
+    return savedSegments.length
+      ? savedSegments.reduce((total, segment) => total + segment.sourceEnd - segment.sourceStart, 0)
+      : video.duration_seconds
+  })
   const [volume, setVolume] = useState(1)
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  // MediaRecorder/WebM blobs report duration as Infinity until the browser is
+  // forced to compute it by seeking to the end. This tracks that recovery.
+  const durationResolvedRef = useRef(false)
   const ffmpeg = useFfmpeg()
   const cameraState = video.kind === "project" ? video.editor_state?.camera : null
   const cameraLayout = cameraState?.layout ?? DEFAULT_CAMERA_LAYOUT
@@ -75,6 +85,38 @@ export function VideoViewScreen({
       ? 2 / Math.sqrt(3)
       : 1
   const showCamera = Boolean(cameraState?.visible && video.camera_url)
+  const hasProjectAudio = Boolean(video.kind === "project" && video.audio_url)
+  const segments = video.kind === "project" ? video.editor_state?.segments ?? [] : []
+  const editedDuration = segments.length
+    ? segments.reduce((total, segment) => total + segment.sourceEnd - segment.sourceStart, 0)
+    : video.duration_seconds
+  const playerReady = videoReady && (!showCamera || cameraReady) && (!hasProjectAudio || audioReady)
+
+  const sourceToProjectTime = (sourceTime: number) => {
+    if (!segments.length) return sourceTime
+    let elapsed = 0
+    for (const [index, segment] of segments.entries()) {
+      const isLast = index === segments.length - 1
+      if (sourceTime >= segment.sourceStart && (sourceTime < segment.sourceEnd || (isLast && sourceTime <= segment.sourceEnd))) {
+        return elapsed + sourceTime - segment.sourceStart
+      }
+      if (sourceTime < segment.sourceStart) return elapsed
+      elapsed += segment.sourceEnd - segment.sourceStart
+    }
+    return elapsed
+  }
+
+  const projectToSourceTime = (projectTime: number) => {
+    if (!segments.length) return projectTime
+    let elapsed = 0
+    const bounded = Math.max(0, Math.min(editedDuration, projectTime))
+    for (const segment of segments) {
+      const length = segment.sourceEnd - segment.sourceStart
+      if (bounded <= elapsed + length) return segment.sourceStart + bounded - elapsed
+      elapsed += length
+    }
+    return segments.at(-1)?.sourceEnd ?? 0
+  }
 
   const syncProjectTracks = () => {
     const player = videoRef.current
@@ -205,9 +247,21 @@ export function VideoViewScreen({
             className="relative w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm"
             style={{ aspectRatio: String(screenAspect) }}
           >
-            {!videoReady && (
-              <div className="absolute inset-0 flex items-center justify-center bg-secondary" aria-label="Loading video">
-                <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            {!playerReady && (
+              <div
+                className="absolute inset-0 z-50 flex items-center justify-center bg-background"
+                role="status"
+                aria-live="polite"
+                aria-label="Loading video"
+              >
+                <span
+                  className="size-8 animate-pulse bg-foreground"
+                  style={{
+                    mask: "url(https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/vercel/mono.svg) center / contain no-repeat",
+                    WebkitMask: "url(https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/vercel/mono.svg) center / contain no-repeat",
+                  }}
+                  aria-hidden="true"
+                />
               </div>
             )}
             <video
@@ -222,14 +276,50 @@ export function VideoViewScreen({
                 else player.pause()
               }}
               onLoadedMetadata={(event) => {
-                const { videoWidth, videoHeight, duration: mediaDuration } = event.currentTarget
+                const player = event.currentTarget
+                const { videoWidth, videoHeight, duration: mediaDuration } = player
                 if (videoWidth > 0 && videoHeight > 0) {
                   setScreenAspect(videoWidth / videoHeight)
                 }
-                if (Number.isFinite(mediaDuration)) setDuration(mediaDuration)
+                if (segments.length) {
+                  setDuration(editedDuration)
+                  durationResolvedRef.current = true
+                } else if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                  setDuration(mediaDuration)
+                  durationResolvedRef.current = true
+                } else {
+                  // Force the browser to compute the true duration of the recording.
+                  durationResolvedRef.current = false
+                  try {
+                    player.currentTime = 1e101
+                  } catch {
+                    // ignore — durationchange will still fire when it can seek
+                  }
+                }
               }}
-              onLoadedData={() => setVideoReady(true)}
-              onPlay={() => {
+              onDurationChange={(event) => {
+                if (durationResolvedRef.current || segments.length) return
+                const mediaDuration = event.currentTarget.duration
+                if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                  setDuration(mediaDuration)
+                  durationResolvedRef.current = true
+                  // Reset the playhead the seek trick moved to the end.
+                  event.currentTarget.currentTime = 0
+                  setCurrentTime(0)
+                }
+              }}
+              onLoadedData={(event) => {
+                if (segments.length && event.currentTarget.currentTime < segments[0].sourceStart) {
+                  event.currentTarget.currentTime = segments[0].sourceStart
+                  syncProjectTracks()
+                }
+                setVideoReady(true)
+              }}
+              onPlay={(event) => {
+                if (segments.length && sourceToProjectTime(event.currentTarget.currentTime) >= editedDuration) {
+                  event.currentTarget.currentTime = segments[0].sourceStart
+                  setCurrentTime(0)
+                }
                 setPlaying(true)
                 playProjectTracks()
               }}
@@ -239,11 +329,36 @@ export function VideoViewScreen({
               }}
               onEnded={() => {
                 setPlaying(false)
+                setCurrentTime(duration)
                 pauseProjectTracks()
               }}
               onSeeking={syncProjectTracks}
               onTimeUpdate={(event) => {
-                setCurrentTime(event.currentTarget.currentTime)
+                const player = event.currentTarget
+                // Ignore updates from the seek-to-end duration probe.
+                if (!durationResolvedRef.current && !segments.length) return
+                if (segments.length) {
+                  const sourceTime = player.currentTime
+                  const activeIndex = segments.findIndex((segment, index) => {
+                    const isLast = index === segments.length - 1
+                    return sourceTime >= segment.sourceStart && (sourceTime < segment.sourceEnd || (isLast && sourceTime <= segment.sourceEnd))
+                  })
+                  if (activeIndex < 0) {
+                    const next = segments.find((segment) => sourceTime < segment.sourceStart)
+                    if (next) {
+                      player.currentTime = next.sourceStart
+                      syncProjectTracks()
+                      return
+                    }
+                    player.pause()
+                    setCurrentTime(editedDuration)
+                    pauseProjectTracks()
+                    return
+                  }
+                  setCurrentTime(sourceToProjectTime(sourceTime))
+                } else {
+                  setCurrentTime(player.currentTime)
+                }
                 syncProjectTracks()
               }}
               onRateChange={() => {
@@ -263,7 +378,7 @@ export function VideoViewScreen({
                   audioRef.current.muted = videoRef.current.muted
                 }
               }}
-              className={`h-full w-full object-fill transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
+              className={`h-full w-full object-fill transition-opacity ${playerReady ? "opacity-100" : "opacity-0"}`}
             >
               <track kind="captions" />
             </video>
@@ -295,14 +410,21 @@ export function VideoViewScreen({
                   muted
                   playsInline
                   preload="auto"
+                  onLoadedData={() => setCameraReady(true)}
                   className="h-full w-full -scale-x-100 object-cover"
                 />
               </div>
             )}
             {video.kind === "project" && video.audio_url && (
-              <audio ref={audioRef} src={video.audio_url} preload="auto" className="hidden" />
+              <audio
+                ref={audioRef}
+                src={video.audio_url}
+                preload="auto"
+                onCanPlay={() => setAudioReady(true)}
+                className="hidden"
+              />
             )}
-            {videoReady && (
+            {playerReady && (
               <div className="absolute inset-x-0 bottom-0 z-40 flex items-center gap-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3 pb-3 pt-10 text-white">
                 <button
                   type="button"
@@ -328,7 +450,7 @@ export function VideoViewScreen({
                   value={Math.min(currentTime, duration || 0)}
                   onChange={(event) => {
                     const next = Number(event.target.value)
-                    if (videoRef.current) videoRef.current.currentTime = next
+                    if (videoRef.current) videoRef.current.currentTime = projectToSourceTime(next)
                     setCurrentTime(next)
                     syncProjectTracks()
                   }}

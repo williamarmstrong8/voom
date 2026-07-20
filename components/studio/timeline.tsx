@@ -70,7 +70,29 @@ export function Timeline({
     return Math.max(0, Math.min(displayDuration, ((clientX - rect.left) / rect.width) * displayDuration))
   }, [displayDuration])
 
-  const scrub = useCallback((clientX: number) => onSeek(sourceAtPointer(clientX)), [onSeek, sourceAtPointer])
+  const scrub = useCallback((clientX: number) => {
+    const viewport = viewportRef.current
+    if (viewport && zoom > 1) {
+      const rect = viewport.getBoundingClientRect()
+      const edgeZone = Math.min(80, rect.width * 0.12)
+      const distanceFromLeft = clientX - rect.left
+      const distanceFromRight = rect.right - clientX
+      const maxStep = Math.max(10, viewport.clientWidth * 0.025)
+
+      if (distanceFromLeft < edgeZone && viewport.scrollLeft > 0) {
+        const intensity = Math.max(0, Math.min(1, (edgeZone - distanceFromLeft) / edgeZone))
+        viewport.scrollLeft -= Math.max(2, maxStep * intensity)
+      } else if (
+        distanceFromRight < edgeZone &&
+        viewport.scrollLeft < viewport.scrollWidth - viewport.clientWidth
+      ) {
+        const intensity = Math.max(0, Math.min(1, (edgeZone - distanceFromRight) / edgeZone))
+        viewport.scrollLeft += Math.max(2, maxStep * intensity)
+      }
+    }
+
+    onSeek(sourceAtPointer(clientX))
+  }, [onSeek, sourceAtPointer, zoom])
 
   const beginScrub = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
@@ -93,8 +115,8 @@ export function Timeline({
     return () => observer.disconnect()
   }, [])
 
-  // Zoom changes the amount of time visible inside a fixed viewport. Keep the
-  // current playhead in view while the underlying timeline becomes wider.
+  // Keep the playhead centered when zoom changes, but preserve the user's
+  // viewport while scrubbing so pointer movement stays relative to the visible range.
   useEffect(() => {
     const viewport = viewportRef.current
     const track = trackRef.current
@@ -102,7 +124,7 @@ export function Timeline({
     const playheadX = (currentTime / displayDuration) * track.scrollWidth
     const nextLeft = playheadX - viewport.clientWidth / 2
     viewport.scrollTo({ left: Math.max(0, nextLeft) })
-  }, [zoom, currentTime, displayDuration])
+  }, [zoom, displayDuration])
 
   const beginEdgeDrag = (id: string, edge: Edge, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return
