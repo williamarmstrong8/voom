@@ -22,7 +22,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useVideos } from "@/hooks/use-videos"
 import type { SavedVideo } from "@/lib/studio-types"
 
 function formatDuration(seconds: number) {
@@ -53,13 +52,15 @@ function formatDate(iso: string) {
 
 interface DashboardProps {
   onRecord: () => void
-  /** Videos read on the server for the first paint. */
-  initialVideos?: SavedVideo[]
   onOpenVideo: (video: SavedVideo) => void
+  videos: SavedVideo[]
+  loading: boolean
+  error: boolean
+  refresh: () => Promise<void>
+  setVideos: React.Dispatch<React.SetStateAction<SavedVideo[]>>
 }
 
-export function Dashboard({ onRecord, onOpenVideo, initialVideos = [] }: DashboardProps) {
-  const { videos, loading, error, refresh, setVideos } = useVideos(initialVideos)
+export function Dashboard({ onRecord, onOpenVideo, videos, loading, error, refresh, setVideos }: DashboardProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // The video queued for deletion. Non-null means the confirm dialog is open.
   const [pendingDelete, setPendingDelete] = useState<SavedVideo | null>(null)

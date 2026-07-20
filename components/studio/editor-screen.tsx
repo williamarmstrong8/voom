@@ -143,6 +143,17 @@ export function EditorScreen({
 
   const [layout, setLayout] = useState<CameraLayout>(initialState?.camera.layout ?? initialLayout)
   const [cameraVisible, setCameraVisible] = useState(initialState?.camera.visible ?? hasCamera)
+  const capturedLayoutRef = useRef(JSON.stringify({ layout, cameraVisible }))
+
+  useEffect(() => {
+    const nextLayout = JSON.stringify({ layout, cameraVisible })
+    if (capturedLayoutRef.current !== nextLayout) {
+      capturedLayoutRef.current = nextLayout
+      setThumbnailFrame(null)
+      setThumbnailFrameTime(null)
+      setCustomThumbnail(null)
+    }
+  }, [cameraVisible, layout])
 
   const [phase, setPhase] = useState<ExportPhase>("idle")
   const [compositeProgress, setCompositeProgress] = useState(0)
@@ -411,8 +422,9 @@ export function EditorScreen({
           ctx.beginPath(); ctx.arc(x + width / 2, y + height / 2, width / 2, 0, Math.PI * 2); ctx.clip()
         } else if (layout.shape === "triangle") {
           ctx.beginPath(); ctx.moveTo(x + width / 2, y); ctx.lineTo(x + width, y + height); ctx.lineTo(x, y + height); ctx.closePath(); ctx.clip()
-        } else if (layout.shape === "rounded") {
-          ctx.beginPath(); ctx.roundRect(x, y, width, height, 14); ctx.clip()
+        } else if (layout.shape === "rounded" || layout.shape === "square") {
+          const radius = width * (layout.shape === "square" ? 0.03 : 0.01)
+          ctx.beginPath(); ctx.roundRect(x, y, width, height, radius); ctx.clip()
         }
         ctx.translate(x + width, y)
         ctx.scale(-1, 1)
