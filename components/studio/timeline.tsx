@@ -70,7 +70,29 @@ export function Timeline({
     return Math.max(0, Math.min(displayDuration, ((clientX - rect.left) / rect.width) * displayDuration))
   }, [displayDuration])
 
-  const scrub = useCallback((clientX: number) => onSeek(sourceAtPointer(clientX)), [onSeek, sourceAtPointer])
+  const scrub = useCallback((clientX: number) => {
+    const viewport = viewportRef.current
+    if (viewport && zoom > 1) {
+      const rect = viewport.getBoundingClientRect()
+      const edgeZone = Math.min(80, rect.width * 0.12)
+      const distanceFromLeft = clientX - rect.left
+      const distanceFromRight = rect.right - clientX
+      const maxStep = Math.max(10, viewport.clientWidth * 0.025)
+
+      if (distanceFromLeft < edgeZone && viewport.scrollLeft > 0) {
+        const intensity = Math.max(0, Math.min(1, (edgeZone - distanceFromLeft) / edgeZone))
+        viewport.scrollLeft -= Math.max(2, maxStep * intensity)
+      } else if (
+        distanceFromRight < edgeZone &&
+        viewport.scrollLeft < viewport.scrollWidth - viewport.clientWidth
+      ) {
+        const intensity = Math.max(0, Math.min(1, (edgeZone - distanceFromRight) / edgeZone))
+        viewport.scrollLeft += Math.max(2, maxStep * intensity)
+      }
+    }
+
+    onSeek(sourceAtPointer(clientX))
+  }, [onSeek, sourceAtPointer, zoom])
 
   const beginScrub = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
