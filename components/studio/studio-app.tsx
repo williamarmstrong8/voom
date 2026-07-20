@@ -280,7 +280,7 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   }, [])
 
   const renderShell = (content: ReactNode) => (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <AppSidebar
         mode={mode}
         onLibrary={goToDashboard}
