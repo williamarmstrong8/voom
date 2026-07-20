@@ -296,20 +296,21 @@ function VideoCard({
   onDelete: () => void
 }) {
   return (
-    <div className="group relative overflow-hidden rounded-md border border-border bg-card transition-colors hover:border-primary/40">
-      <button
-        type="button"
-        onPointerDown={(event) => {
-          if (event.button === 0) onOpen()
-        }}
-        onClick={(event) => {
-          // Pointer input opens on pointer-down so the library refresh triggered
-          // by iframe/window focus cannot swallow the first click. Keep click for keyboard activation.
-          if (event.detail === 0) onOpen()
-        }}
-        className="block w-full touch-manipulation text-left"
-        aria-label={`Play ${video.title}`}
-      >
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Play ${video.title}`}
+      onPointerDown={(event) => {
+        if (event.button === 0 && !(event.target as HTMLElement).closest("[data-card-menu]")) onOpen()
+      }}
+      onKeyDown={(event) => {
+        if ((event.key === "Enter" || event.key === " ") && !(event.target as HTMLElement).closest("[data-card-menu]")) {
+          event.preventDefault()
+          onOpen()
+        }
+      }}
+      className="group relative cursor-pointer touch-manipulation overflow-hidden rounded-md border border-border bg-card outline-none transition-colors hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring"
+    >
         <div className="relative aspect-video w-full overflow-hidden bg-secondary">
           {video.thumbnail_url ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -335,7 +336,6 @@ function VideoCard({
             {formatDuration(video.duration_seconds)}
           </span>
         </div>
-      </button>
 
       <div className="flex items-start justify-between gap-2 p-3">
         <div className="min-w-0">
@@ -348,6 +348,7 @@ function VideoCard({
         </div>
         <Menu.Root>
           <Menu.Trigger
+            data-card-menu
             disabled={deleting}
             aria-label={`More actions for ${video.title}`}
             className="shrink-0 rounded-md p-1.5 text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
