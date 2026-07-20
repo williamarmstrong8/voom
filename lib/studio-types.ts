@@ -95,9 +95,9 @@ export interface TrimRange {
 }
 
 export const DEFAULT_CAMERA_LAYOUT: CameraLayout = {
-  // Equal visible pixel padding in a 16:9 frame: 4% of width = 7.11% of height.
-  left: 0.04,
-  bottom: 0.0711,
-  width: 0.24,
+  // Equal visible pixel padding in a 16:9 frame: 3% of width = 5.33% of height.
+  left: 0.03,
+  bottom: 0.0533,
+  width: 0.21,
   shape: "square",
 }
