@@ -315,8 +315,15 @@ function VideoCard({
     <div className="group relative overflow-hidden rounded-md border border-border bg-card transition-colors hover:border-primary/40">
       <button
         type="button"
-        onClick={onOpen}
-        className="block w-full text-left"
+        onPointerDown={(event) => {
+          if (event.button === 0) onOpen()
+        }}
+        onClick={(event) => {
+          // Pointer input opens on pointer-down so the library refresh triggered
+          // by iframe/window focus cannot swallow the first click. Keep click for keyboard activation.
+          if (event.detail === 0) onOpen()
+        }}
+        className="block w-full touch-manipulation text-left"
         aria-label={`Play ${video.title}`}
       >
         <div className="relative aspect-video w-full overflow-hidden bg-secondary">
