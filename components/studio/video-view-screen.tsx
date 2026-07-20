@@ -73,6 +73,9 @@ export function VideoViewScreen({
   const videoRef = useRef<HTMLVideoElement>(null)
   const cameraRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
+  // MediaRecorder/WebM blobs report duration as Infinity until the browser is
+  // forced to compute it by seeking to the end. This tracks that recovery.
+  const durationResolvedRef = useRef(false)
   const ffmpeg = useFfmpeg()
   const cameraState = video.kind === "project" ? video.editor_state?.camera : null
   const cameraLayout = cameraState?.layout ?? DEFAULT_CAMERA_LAYOUT
@@ -273,12 +276,36 @@ export function VideoViewScreen({
                 else player.pause()
               }}
               onLoadedMetadata={(event) => {
-                const { videoWidth, videoHeight, duration: mediaDuration } = event.currentTarget
+                const player = event.currentTarget
+                const { videoWidth, videoHeight, duration: mediaDuration } = player
                 if (videoWidth > 0 && videoHeight > 0) {
                   setScreenAspect(videoWidth / videoHeight)
                 }
-                if (Number.isFinite(mediaDuration)) {
-                  setDuration(segments.length ? editedDuration : mediaDuration)
+                if (segments.length) {
+                  setDuration(editedDuration)
+                  durationResolvedRef.current = true
+                } else if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                  setDuration(mediaDuration)
+                  durationResolvedRef.current = true
+                } else {
+                  // Force the browser to compute the true duration of the recording.
+                  durationResolvedRef.current = false
+                  try {
+                    player.currentTime = 1e101
+                  } catch {
+                    // ignore — durationchange will still fire when it can seek
+                  }
+                }
+              }}
+              onDurationChange={(event) => {
+                if (durationResolvedRef.current || segments.length) return
+                const mediaDuration = event.currentTarget.duration
+                if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
+                  setDuration(mediaDuration)
+                  durationResolvedRef.current = true
+                  // Reset the playhead the seek trick moved to the end.
+                  event.currentTarget.currentTime = 0
+                  setCurrentTime(0)
                 }
               }}
               onLoadedData={(event) => {
@@ -308,6 +335,8 @@ export function VideoViewScreen({
               onSeeking={syncProjectTracks}
               onTimeUpdate={(event) => {
                 const player = event.currentTarget
+                // Ignore updates from the seek-to-end duration probe.
+                if (!durationResolvedRef.current && !segments.length) return
                 if (segments.length) {
                   const sourceTime = player.currentTime
                   const activeIndex = segments.findIndex((segment, index) => {
