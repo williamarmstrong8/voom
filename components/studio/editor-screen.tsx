@@ -643,7 +643,7 @@ export function EditorScreen({
               onClick={() => (playing ? pause() : play())}
               onVolumeChange={(event) => setVolume(event.currentTarget.muted ? 0 : event.currentTarget.volume)}
               playsInline
-              className={cn("h-full w-full object-fill", cameraOnly && "invisible")}
+              className={cn("h-full w-full object-contain", cameraOnly && "invisible")}
             />
 
             {cameraOnly && recording.camera && (

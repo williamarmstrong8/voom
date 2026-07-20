@@ -73,12 +73,9 @@ async function composeThumbnail(base: string, title: string, logos: string[]): P
   if (marks.length) {
     const size = 220
     const gap = 22
-    const padding = 26
-    const width = marks.length * size + (marks.length - 1) * gap + padding * 2
+    const width = marks.length * size + (marks.length - 1) * gap
     const x = canvas.width - width - 52
     const y = 46
-    ctx.fillStyle = "rgba(0,0,0,.78)"
-    ctx.beginPath(); ctx.roundRect(x, y, width, size + padding * 2, 26); ctx.fill()
 
     marks.forEach(({ image, logo }, index) => {
       const source = document.createElement("canvas")
@@ -96,10 +93,8 @@ async function composeThumbnail(base: string, title: string, logos: string[]): P
         if (remove) pixels.data[offset + 3] = 0
       }
       sourceContext.putImageData(pixels, 0, 0)
-      const px = x + padding + index * (size + gap)
-      ctx.fillStyle = logo.remove === "light" ? "#fff" : "#000"
-      ctx.beginPath(); ctx.roundRect(px, y + padding, size, size, 22); ctx.fill()
-      ctx.drawImage(source, px, y + padding, size, size)
+      const px = x + index * (size + gap)
+      ctx.drawImage(source, px, y, size, size)
     })
   }
 
