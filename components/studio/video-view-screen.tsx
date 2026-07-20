@@ -244,12 +244,16 @@ export function VideoViewScreen({
       <section className="flex items-start justify-center overflow-hidden" aria-label="Video player">
         {playbackUrl ? (
           <div
-            className="relative w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm"
-            style={{ aspectRatio: String(screenAspect) }}
+            className={
+              playerReady
+                ? "relative w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm"
+                : "relative w-full max-w-7xl overflow-hidden"
+            }
+            style={playerReady ? { aspectRatio: String(screenAspect) } : undefined}
           >
             {!playerReady && (
               <div
-                className="absolute inset-0 z-50 flex items-center justify-center bg-background"
+                className="flex min-h-[40vh] items-center justify-center"
                 role="status"
                 aria-live="polite"
                 aria-label="Loading video"
@@ -378,7 +382,7 @@ export function VideoViewScreen({
                   audioRef.current.muted = videoRef.current.muted
                 }
               }}
-              className={`h-full w-full object-fill transition-opacity ${playerReady ? "opacity-100" : "opacity-0"}`}
+              className={`w-full object-fill transition-opacity ${playerReady ? "h-full opacity-100" : "absolute inset-0 h-full opacity-0"}`}
             >
               <track kind="captions" />
             </video>
