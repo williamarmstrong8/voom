@@ -144,53 +144,22 @@ export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }:
               key={video.id}
               video={video}
               deleting={deletingId === video.id}
+              renaming={pendingRename?.id === video.id}
+              renameTitle={renameTitle}
+              renameError={pendingRename?.id === video.id ? renameError : null}
+              savingRename={renaming && pendingRename?.id === video.id}
               onOpen={() => onOpenVideo(video)}
               onRename={() => beginRename(video)}
+              onRenameTitleChange={setRenameTitle}
+              onRenameSave={() => void confirmRename()}
+              onRenameCancel={() => {
+                if (!renaming) setPendingRename(null)
+              }}
               onDelete={() => setPendingDelete(video)}
             />
           ))}
         </section>
       )}
-
-      <Dialog
-        open={pendingRename !== null}
-        onOpenChange={(open) => {
-          if (!open && !renaming) setPendingRename(null)
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename video</DialogTitle>
-            <DialogDescription>Choose a new name for this recording.</DialogDescription>
-          </DialogHeader>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void confirmRename()
-            }}
-          >
-            <label className="flex flex-col gap-2 text-label-13">
-              Video name
-              <input
-                autoFocus
-                value={renameTitle}
-                onChange={(event) => setRenameTitle(event.target.value)}
-                disabled={renaming}
-                className="h-10 rounded-md border border-border bg-background px-3 text-copy-14 text-foreground outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              />
-            </label>
-            {renameError && <p className="text-copy-13 text-destructive">{renameError}</p>}
-            <DialogFooter>
-              <DialogClose render={<Button type="button" variant="outline" disabled={renaming}>Cancel</Button>} />
-              <Button type="submit" disabled={!renameTitle.trim() || renaming} className="gap-2">
-                {renaming && <Loader2 className="size-4 animate-spin" />}
-                Save name
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={pendingDelete !== null}
@@ -285,14 +254,28 @@ function LibraryCameraPreview({ video }: { video: SavedVideo }) {
 function VideoCard({
   video,
   deleting,
+  renaming,
+  renameTitle,
+  renameError,
+  savingRename,
   onOpen,
   onRename,
+  onRenameTitleChange,
+  onRenameSave,
+  onRenameCancel,
   onDelete,
 }: {
   video: SavedVideo
   deleting: boolean
+  renaming: boolean
+  renameTitle: string
+  renameError: string | null
+  savingRename: boolean
   onOpen: () => void
   onRename: () => void
+  onRenameTitleChange: (title: string) => void
+  onRenameSave: () => void
+  onRenameCancel: () => void
   onDelete: () => void
 }) {
   return (
@@ -301,10 +284,10 @@ function VideoCard({
       tabIndex={0}
       aria-label={`Play ${video.title}`}
       onPointerDown={(event) => {
-        if (event.button === 0 && !(event.target as HTMLElement).closest("[data-card-menu]")) onOpen()
+        if (event.button === 0 && !(event.target as HTMLElement).closest("[data-card-action]")) onOpen()
       }}
       onKeyDown={(event) => {
-        if ((event.key === "Enter" || event.key === " ") && !(event.target as HTMLElement).closest("[data-card-menu]")) {
+        if ((event.key === "Enter" || event.key === " ") && !(event.target as HTMLElement).closest("[data-card-action]")) {
           event.preventDefault()
           onOpen()
         }
@@ -338,8 +321,39 @@ function VideoCard({
         </div>
 
       <div className="flex items-start justify-between gap-2 p-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{video.title}</p>
+        <div className="min-w-0 flex-1">
+          {renaming ? (
+            <form
+              data-card-action
+              className="flex items-center gap-1"
+              onSubmit={(event) => {
+                event.preventDefault()
+                onRenameSave()
+              }}
+            >
+              <input
+                autoFocus
+                value={renameTitle}
+                onChange={(event) => onRenameTitleChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") onRenameCancel()
+                }}
+                disabled={savingRename}
+                aria-label="Video name"
+                className="h-7 min-w-0 flex-1 rounded-sm border border-border bg-background px-2 text-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+              />
+              <button
+                type="submit"
+                disabled={!renameTitle.trim() || savingRename}
+                className="rounded-sm px-2 py-1 text-xs font-medium hover:bg-secondary disabled:opacity-50"
+              >
+                {savingRename ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
+              </button>
+            </form>
+          ) : (
+            <p className="truncate text-sm font-medium">{video.title}</p>
+          )}
+          {renameError && <p className="mt-1 text-xs text-destructive">{renameError}</p>}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock className="size-3" />
             {formatDate(video.created_at)}
@@ -348,7 +362,7 @@ function VideoCard({
         </div>
         <Menu.Root>
           <Menu.Trigger
-            data-card-menu
+            data-card-action
             disabled={deleting}
             aria-label={`More actions for ${video.title}`}
             className="shrink-0 rounded-md p-1.5 text-muted-foreground outline-none transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
