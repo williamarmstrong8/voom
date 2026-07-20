@@ -10,6 +10,7 @@ import {
 } from "@/lib/db"
 
 export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
 
 // The Blob store is private, so files are streamed back through /api/file
 // rather than served from a public URL.
@@ -32,7 +33,10 @@ interface CreateProjectBody {
 export async function GET() {
   try {
     const videos = await listVideos()
-    return NextResponse.json({ videos })
+    return NextResponse.json(
+      { videos },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    )
   } catch (error) {
     console.error("[v0] list videos failed:", error)
     return NextResponse.json({ error: "Failed to list videos" }, { status: 500 })

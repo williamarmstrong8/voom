@@ -52,6 +52,9 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   const [layout, setLayout] = useState<CameraLayout>(DEFAULT_CAMERA_LAYOUT)
   const [recording, setRecording] = useState<RecordingResult | null>(null)
   const [selectedVideo, setSelectedVideo] = useState<SavedVideo | null>(null)
+  const [videos, setVideos] = useState<SavedVideo[]>(initialVideos)
+  const [videosLoading, setVideosLoading] = useState(false)
+  const [videosError, setVideosError] = useState(false)
   const [extensionActive, setExtensionActive] = useState(false)
   const [editLoading, setEditLoading] = useState(false)
   const [editLoadError, setEditLoadError] = useState<string | null>(null)
@@ -92,6 +95,41 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
 
   const recorder = useRecorder()
   const pip = useDocumentPip()
+
+  const refreshVideos = useCallback(async () => {
+    setVideosLoading(true)
+    setVideosError(false)
+    try {
+      const response = await fetch("/api/videos", { cache: "no-store" })
+      if (!response.ok) throw new Error(`Library request failed: ${response.status}`)
+      const data = (await response.json()) as { videos?: SavedVideo[] }
+      setVideos(data.videos ?? [])
+    } catch (error) {
+      console.error("[v0] failed to refresh library:", error)
+      setVideosError(true)
+    } finally {
+      setVideosLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (mode === "dashboard") void refreshVideos()
+  }, [mode, refreshVideos])
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible" && mode === "dashboard") void refreshVideos()
+    }
+    const refreshOnFocus = () => {
+      if (mode === "dashboard") void refreshVideos()
+    }
+    document.addEventListener("visibilitychange", refreshIfVisible)
+    window.addEventListener("focus", refreshOnFocus)
+    return () => {
+      document.removeEventListener("visibilitychange", refreshIfVisible)
+      window.removeEventListener("focus", refreshOnFocus)
+    }
+  }, [mode, refreshVideos])
 
   // Prefer the extension's private overlay, but retain Document PiP when the
   // extension is unavailable so controls can still follow the shared tab.
@@ -363,7 +401,11 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
       <Dashboard
         onRecord={startNewRecording}
         onOpenVideo={openSavedVideo}
-        initialVideos={initialVideos}
+        videos={videos}
+        loading={videosLoading}
+        error={videosError}
+        refresh={refreshVideos}
+        setVideos={setVideos}
       />,
     )
   }
@@ -392,6 +434,7 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
         onSaved={(saved) => {
           cleanupRecording()
           if (saved) {
+            setVideos((current) => [saved, ...current.filter((video) => video.id !== saved.id)])
             setSelectedVideo(saved)
             setMode("viewing")
           } else {
