@@ -80,6 +80,23 @@ function seek(video: HTMLVideoElement, time: number): Promise<void> {
   })
 }
 
+/** Draw a source video into a destination rect using object-contain semantics. */
+function drawContain(
+  ctx: CanvasRenderingContext2D,
+  video: HTMLVideoElement,
+  dx: number,
+  dy: number,
+  dw: number,
+  dh: number,
+) {
+  const vw = video.videoWidth || 16
+  const vh = video.videoHeight || 9
+  const scale = Math.min(dw / vw, dh / vh)
+  const width = vw * scale
+  const height = vh * scale
+  ctx.drawImage(video, dx + (dw - width) / 2, dy + (dh - height) / 2, width, height)
+}
+
 /** Draw a source video into a destination rect using object-cover semantics. */
 function drawCover(
   ctx: CanvasRenderingContext2D,
@@ -324,7 +341,7 @@ export async function compositeToFile({
       drawCover(ctx, camera, 0, 0, canvas.width, canvas.height)
       ctx.restore()
     } else {
-      drawCover(ctx, screen, 0, 0, canvas.width, canvas.height)
+      drawContain(ctx, screen, 0, 0, canvas.width, canvas.height)
     }
 
     if (camera && !cameraOnly) {

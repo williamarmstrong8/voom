@@ -6,13 +6,11 @@ import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 const LOGOS = [
-  ["vercel", "Vercel"], ["nextjs", "Next.js"], ["v0", "v0"], ["vercel-blob", "Vercel Blob"],
-  ["turborepo", "Turborepo"], ["swr", "SWR"], ["react", "React"], ["typescript", "TypeScript"],
-  ["tailwindcss", "Tailwind CSS"], ["shadcn-ui", "shadcn/ui"], ["prisma", "Prisma"], ["neon", "Neon"],
-  ["stripe", "Stripe"], ["figma", "Figma"], ["github", "GitHub"], ["supabase", "Supabase"],
+  { id: "v0-dark", label: "v0 · dark mark", src: "/brand/v0-logo-light.png", remove: "light" },
+  { id: "v0-light", label: "v0 · light mark", src: "/brand/v0-logo-dark.webp", remove: "dark" },
 ] as const
 
-const logoUrl = (slug: string) => `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/${slug}/default.svg`
+const getLogo = (id: string) => LOGOS.find((logo) => logo.id === id)
 
 function formatTime(seconds: number) {
   const minutes = Math.floor(seconds / 60)
@@ -31,8 +29,8 @@ async function loadImage(src: string) {
 
 async function composeThumbnail(base: string, title: string, logos: string[]): Promise<Blob> {
   const canvas = document.createElement("canvas")
-  canvas.width = 1280
-  canvas.height = 720
+  canvas.width = 1920
+  canvas.height = 1080
   const ctx = canvas.getContext("2d")
   if (!ctx) throw new Error("Canvas is unavailable")
 
@@ -41,13 +39,13 @@ async function composeThumbnail(base: string, title: string, logos: string[]): P
 
   const cleanTitle = title.trim()
   if (cleanTitle) {
-    ctx.font = "600 54px Geist, Arial, sans-serif"
+    ctx.font = "600 80px Geist, Arial, sans-serif"
     const words = cleanTitle.split(/\s+/)
     const lines: string[] = []
     let line = ""
     for (const word of words) {
       const candidate = line ? `${line} ${word}` : word
-      if (ctx.measureText(candidate).width > 900 && line) {
+      if (ctx.measureText(candidate).width > 1320 && line) {
         lines.push(line)
         line = word
       } else {
@@ -56,30 +54,47 @@ async function composeThumbnail(base: string, title: string, logos: string[]): P
     }
     if (line) lines.push(line)
     const visibleLines = lines.slice(0, 2)
-    const panelWidth = Math.min(980, Math.max(...visibleLines.map((item) => ctx.measureText(item).width), 320) + 56)
-    const panelHeight = visibleLines.length * 64 + 38
-    const x = 38
-    const y = canvas.height - panelHeight - 38
-    ctx.fillStyle = "rgba(0,0,0,.78)"
-    ctx.beginPath(); ctx.roundRect(x, y, panelWidth, panelHeight, 16); ctx.fill()
+    const panelWidth = Math.min(1460, Math.max(...visibleLines.map((item) => ctx.measureText(item).width), 480) + 88)
+    const panelHeight = visibleLines.length * 96 + 56
+    const x = 58
+    const y = canvas.height - panelHeight - 58
+    ctx.fillStyle = "rgba(0,0,0,.82)"
+    ctx.beginPath(); ctx.roundRect(x, y, panelWidth, panelHeight, 24); ctx.fill()
     ctx.fillStyle = "#fff"
-    visibleLines.forEach((item, index) => ctx.fillText(item, x + 28, y + 63 + index * 64))
+    visibleLines.forEach((item, index) => ctx.fillText(item, x + 44, y + 94 + index * 96))
   }
 
-  const loaded = (await Promise.allSettled(logos.map((slug) => loadImage(logoUrl(slug)))))
-    .flatMap((result) => result.status === "fulfilled" ? [result.value] : [])
-  if (loaded.length) {
-    const size = 54
-    const gap = 14
-    const width = loaded.length * size + (loaded.length - 1) * gap + 32
-    const x = canvas.width - width - 34
-    ctx.fillStyle = "rgba(0,0,0,.78)"
-    ctx.beginPath(); ctx.roundRect(x, 30, width, size + 28, 16); ctx.fill()
-    loaded.forEach((image, index) => {
-      const px = x + 16 + index * (size + gap)
-      ctx.fillStyle = "white"
-      ctx.beginPath(); ctx.roundRect(px, 44, size, size, 10); ctx.fill()
-      ctx.drawImage(image, px + 8, 52, size - 16, size - 16)
+  const selectedLogos = logos.flatMap((id) => {
+    const logo = getLogo(id)
+    return logo ? [logo] : []
+  })
+  const loaded = await Promise.allSettled(selectedLogos.map((logo) => loadImage(logo.src)))
+  const marks = loaded.flatMap((result, index) => result.status === "fulfilled" ? [{ image: result.value, logo: selectedLogos[index] }] : [])
+  if (marks.length) {
+    const size = 220
+    const gap = 22
+    const width = marks.length * size + (marks.length - 1) * gap
+    const x = canvas.width - width - 52
+    const y = 46
+
+    marks.forEach(({ image, logo }, index) => {
+      const source = document.createElement("canvas")
+      source.width = image.naturalWidth
+      source.height = image.naturalHeight
+      const sourceContext = source.getContext("2d", { willReadFrequently: true })
+      if (!sourceContext) return
+      sourceContext.drawImage(image, 0, 0)
+      const pixels = sourceContext.getImageData(0, 0, source.width, source.height)
+      for (let offset = 0; offset < pixels.data.length; offset += 4) {
+        const red = pixels.data[offset]
+        const green = pixels.data[offset + 1]
+        const blue = pixels.data[offset + 2]
+        const remove = logo.remove === "light" ? Math.min(red, green, blue) > 245 : Math.max(red, green, blue) < 10
+        if (remove) pixels.data[offset + 3] = 0
+      }
+      sourceContext.putImageData(pixels, 0, 0)
+      const px = x + index * (size + gap)
+      ctx.drawImage(source, px, y, size, size)
     })
   }
 
@@ -136,7 +151,7 @@ export function ThumbnailGenerator({ frame, frameTime, title, onUse }: Thumbnail
     <div className="flex flex-col gap-5">
       <div>
         <h3 className="text-sm font-semibold">Thumbnail</h3>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Use the selected video frame, then add a title or product marks.</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">The preview follows the current timeline frame. Scrub to choose another moment, then add a title or product mark.</p>
       </div>
 
       <div className="relative aspect-video overflow-hidden rounded-md border border-border bg-secondary">
@@ -145,8 +160,8 @@ export function ThumbnailGenerator({ frame, frameTime, title, onUse }: Thumbnail
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <ImageIcon className="size-6 text-muted-foreground" />
-            <p className="text-xs font-medium">No frame selected</p>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">Move the playhead and select the frame above the timeline.</p>
+            <p className="text-xs font-medium">Loading current frame</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">The thumbnail preview will appear from the current playhead position.</p>
           </div>
         )}
         {frame && frameTime !== null && !overlayTitle && logos.length === 0 && (
@@ -163,16 +178,24 @@ export function ThumbnailGenerator({ frame, frameTime, title, onUse }: Thumbnail
       <div className="flex flex-col gap-2">
         <span className="text-xs font-medium">Product marks <span className="font-normal text-muted-foreground">(optional)</span></span>
         <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
-          {LOGOS.map(([slug, label]) => {
-            const active = logos.includes(slug)
+          {LOGOS.map((logo) => {
+            const active = logos.includes(logo.id)
             return (
-              <button type="button" key={slug} onClick={() => setLogos((current) => active ? current.filter((item) => item !== slug) : [...current, slug].slice(-5))} className={cn("flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition-colors", active ? "border-foreground bg-foreground text-background" : "hover:bg-secondary")}>
-                {active && <Check className="size-3" />}{label}
+              <button
+                type="button"
+                key={logo.id}
+                onClick={() => setLogos((current) => active ? current.filter((item) => item !== logo.id) : [...current, logo.id].slice(-5))}
+                className={cn("flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs transition-colors", active ? "border-foreground bg-foreground text-background" : "hover:bg-secondary")}
+              >
+                <span className={cn("flex size-6 items-center justify-center overflow-hidden rounded-full", logo.remove === "light" ? "bg-white" : "bg-black")}>
+                  <img src={logo.src} alt="" className="size-6 object-cover" />
+                </span>
+                {active && <Check className="size-3" />}{logo.label}
               </button>
             )
           })}
         </div>
-        <p className="text-[11px] text-muted-foreground">Choose up to 5 exact official marks.</p>
+        <p className="text-[11px] text-muted-foreground">Choose the black or white v0 mark for the best contrast.</p>
       </div>
 
       {error && <p role="alert" className="rounded-sm border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
