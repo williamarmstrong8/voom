@@ -56,6 +56,8 @@ export function VideoViewScreen({
   const playbackUrl = video.kind === "project" ? video.screen_url : video.url
   const baseUrl = playbackUrl ?? video.url
   const [videoReady, setVideoReady] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [audioReady, setAudioReady] = useState(false)
   const [screenAspect, setScreenAspect] = useState(16 / 9)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -75,6 +77,8 @@ export function VideoViewScreen({
       ? 2 / Math.sqrt(3)
       : 1
   const showCamera = Boolean(cameraState?.visible && video.camera_url)
+  const hasProjectAudio = Boolean(video.kind === "project" && video.audio_url)
+  const playerReady = videoReady && (!showCamera || cameraReady) && (!hasProjectAudio || audioReady)
 
   const syncProjectTracks = () => {
     const player = videoRef.current
@@ -205,9 +209,15 @@ export function VideoViewScreen({
             className="relative w-full max-w-7xl overflow-hidden rounded-lg border border-border bg-black shadow-sm"
             style={{ aspectRatio: String(screenAspect) }}
           >
-            {!videoReady && (
-              <div className="absolute inset-0 flex items-center justify-center bg-secondary" aria-label="Loading video">
+            {!playerReady && (
+              <div
+                className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-secondary"
+                role="status"
+                aria-live="polite"
+                aria-label="Loading video"
+              >
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                <span className="text-copy-13 text-muted-foreground">Loading video…</span>
               </div>
             )}
             <video
@@ -263,7 +273,7 @@ export function VideoViewScreen({
                   audioRef.current.muted = videoRef.current.muted
                 }
               }}
-              className={`h-full w-full object-fill transition-opacity ${videoReady ? "opacity-100" : "opacity-0"}`}
+              className={`h-full w-full object-fill transition-opacity ${playerReady ? "opacity-100" : "opacity-0"}`}
             >
               <track kind="captions" />
             </video>
@@ -295,14 +305,21 @@ export function VideoViewScreen({
                   muted
                   playsInline
                   preload="auto"
+                  onLoadedData={() => setCameraReady(true)}
                   className="h-full w-full -scale-x-100 object-cover"
                 />
               </div>
             )}
             {video.kind === "project" && video.audio_url && (
-              <audio ref={audioRef} src={video.audio_url} preload="auto" className="hidden" />
+              <audio
+                ref={audioRef}
+                src={video.audio_url}
+                preload="auto"
+                onCanPlay={() => setAudioReady(true)}
+                className="hidden"
+              />
             )}
-            {videoReady && (
+            {playerReady && (
               <div className="absolute inset-x-0 bottom-0 z-40 flex items-center gap-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3 pb-3 pt-10 text-white">
                 <button
                   type="button"
