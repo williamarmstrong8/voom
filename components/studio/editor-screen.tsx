@@ -148,6 +148,7 @@ export function EditorScreen({
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>(initialState?.titleCards ?? [])
   const [guideSteps, setGuideSteps] = useState<GuideStep[]>(initialState?.guideSteps ?? [])
+  const [selectedGuideStepId, setSelectedGuideStepId] = useState<string | null>(null)
   const [brandKit] = useState(initialState?.brandKit ?? DEFAULT_BRAND_KIT)
   const [activeTool, setActiveTool] = useState<"captions" | "guide" | "camera" | "thumbnail" | "export">("captions")
 
@@ -410,12 +411,20 @@ export function EditorScreen({
     setGuideSteps((steps) => steps.map((step) => (step.id === id ? { ...step, ...patch } : step)))
   }, [])
 
+  const moveGuideStep = useCallback((id: string, projectTime: number) => {
+    const start = Math.max(0, Math.min(editedDuration, projectTime))
+    setGuideSteps((steps) =>
+      steps.map((step) => (step.id === id ? { ...step, start } : step)).sort((a, b) => a.start - b.start),
+    )
+  }, [editedDuration])
+
   const setGuideStepToPlayhead = useCallback(
     (id: string) => {
       const start = Math.max(0, Math.round(sourceToProjectTime(currentTime)))
       setGuideSteps((steps) =>
         steps.map((step) => (step.id === id ? { ...step, start } : step)).sort((a, b) => a.start - b.start),
       )
+      setSelectedGuideStepId(id)
     },
     [currentTime, sourceToProjectTime],
   )
@@ -834,12 +843,19 @@ export function EditorScreen({
             frames={frames}
             segments={segments}
             captions={captions}
+            guideSteps={sortedGuideSteps}
+            selectedGuideStepId={selectedGuideStepId}
             selectedSegmentId={selectedSegmentId}
             zoom={timelineZoom}
             onZoomChange={setTimelineZoom}
             onSelectSegment={setSelectedSegmentId}
             onSegmentsChange={setSegments}
             onSegmentsCommit={commitSegmentTrim}
+            onSelectGuideStep={(id) => {
+              setSelectedGuideStepId(id)
+              setActiveTool("guide")
+            }}
+            onGuideStepMove={moveGuideStep}
             onSeek={seek}
           />
         </div>
@@ -959,7 +975,14 @@ export function EditorScreen({
               ) : (
                 <div className="mt-3 flex flex-col gap-3">
                   {sortedGuideSteps.map((step, index) => (
-                    <div key={step.id} className="rounded-sm border border-border bg-background p-2.5">
+                    <div
+                      key={step.id}
+                      className={cn(
+                        "min-w-0 max-w-full overflow-hidden rounded-sm border bg-background p-2.5",
+                        selectedGuideStepId === step.id ? "border-primary ring-1 ring-primary/30" : "border-border",
+                      )}
+                      onFocusCapture={() => setSelectedGuideStepId(step.id)}
+                    >
                       <div className="mb-2 flex items-center gap-2">
                         <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
                           Step {index + 1}

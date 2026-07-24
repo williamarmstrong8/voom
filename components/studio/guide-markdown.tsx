@@ -25,7 +25,7 @@ export function GuideMarkdown({ children, className }: { children: string; class
   const markdown = normalizeNotionMarkdown(children)
 
   return (
-    <div className={cn("text-copy-14 leading-6 text-[var(--ds-gray-1000)]", className)}>
+    <div className={cn("min-w-0 max-w-full overflow-hidden break-words text-copy-14 leading-6 text-[var(--ds-gray-1000)] [overflow-wrap:anywhere]", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -44,7 +44,7 @@ export function GuideMarkdown({ children, className }: { children: string; class
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="font-medium text-[var(--ds-blue-700)] underline underline-offset-2 hover:opacity-80"
+              className="break-all font-medium text-[var(--ds-blue-700)] underline underline-offset-2 hover:opacity-80"
             >
               {children}
             </a>
@@ -65,7 +65,7 @@ export function GuideMarkdown({ children, className }: { children: string; class
             </blockquote>
           ),
           pre: ({ children }) => (
-            <pre className="my-3 overflow-x-auto rounded-md bg-[var(--ds-gray-100)] p-3 font-mono text-copy-13 leading-6 shadow-[var(--ds-shadow-border)]">
+            <pre className="my-3 max-w-full overflow-x-auto rounded-md bg-[var(--ds-gray-100)] p-3 font-mono text-copy-13 leading-6 shadow-[var(--ds-shadow-border)]">
               {children}
             </pre>
           ),

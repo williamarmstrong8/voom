@@ -51,7 +51,7 @@ export function GuidePanel({
   const index = shown ? sorted.findIndex((step) => step.id === shown.id) : -1
 
   return (
-    <div className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border border-border bg-card", className)}>
+    <div className={cn("flex min-h-0 min-w-0 max-w-full flex-col overflow-hidden rounded-lg border border-border bg-card", className)}>
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">
         <BookOpen className="size-4 text-muted-foreground" aria-hidden="true" />
         <span className="text-copy-13 font-medium">Build guide</span>
@@ -71,7 +71,7 @@ export function GuidePanel({
         aria-live="polite"
       >
         {shown ? (
-          <article key={shown.id}>
+          <article key={shown.id} className="min-w-0 max-w-full overflow-hidden">
             <div className="mb-4 rounded-md border border-[var(--ds-gray-alpha-400)] bg-[var(--ds-background-100)] px-3 py-3 shadow-[var(--ds-shadow-border)]">
               <div className="flex items-baseline gap-2">
                 <h2 className="text-pretty text-heading-16">{shown.title || "Untitled step"}</h2>

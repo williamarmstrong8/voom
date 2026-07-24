@@ -10,6 +10,7 @@ import {
   Pencil,
   Play,
   Plus,
+  Upload,
   Tags,
   Trash2,
   Video as VideoIcon,
@@ -55,13 +56,17 @@ function formatDate(iso: string) {
 
 interface DashboardProps {
   onRecord: () => void
+  onImportVideo: (file: File) => void
+  importError?: string | null
+  importing?: boolean
   onOpenVideo: (video: SavedVideo) => void
   videos: SavedVideo[]
   refresh: () => Promise<void>
   setVideos: React.Dispatch<React.SetStateAction<SavedVideo[]>>
 }
 
-export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }: DashboardProps) {
+export function Dashboard({ onRecord, onImportVideo, importError, importing, onOpenVideo, videos, refresh, setVideos }: DashboardProps) {
+  const importInputRef = useRef<HTMLInputElement>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   // The video queued for deletion. Non-null means the confirm dialog is open.
   const [pendingDelete, setPendingDelete] = useState<SavedVideo | null>(null)
@@ -181,11 +186,36 @@ export function Dashboard({ onRecord, onOpenVideo, videos, refresh, setVideos }:
             Your recorded demos and screen walkthroughs.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button onClick={onRecord} size="lg" className="gap-2">
-            <VideoIcon className="size-4" />
-            Record
-          </Button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="video/*"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) onImportVideo(file)
+                event.target.value = ""
+              }}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              disabled={importing}
+              onClick={() => importInputRef.current?.click()}
+              className="gap-2"
+            >
+              {importing ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              {importing ? "Importing…" : "Import video"}
+            </Button>
+            <Button onClick={onRecord} size="lg" className="gap-2">
+              <VideoIcon className="size-4" />
+              Record
+            </Button>
+          </div>
+          {importError && <p className="max-w-md text-right text-xs text-destructive" role="alert">{importError}</p>}
         </div>
       </header>
 

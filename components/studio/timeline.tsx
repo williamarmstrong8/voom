@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
-import type { CaptionCue, EditorSegment } from "@/lib/editor-types"
+import type { CaptionCue, EditorSegment, GuideStep } from "@/lib/editor-types"
 import { cn } from "@/lib/utils"
 
 function fmt(time: number) {
@@ -17,12 +17,16 @@ interface TimelineProps {
   frames?: string[]
   segments: EditorSegment[]
   captions?: CaptionCue[]
+  guideSteps?: GuideStep[]
+  selectedGuideStepId?: string | null
   selectedSegmentId?: string | null
   zoom?: number
   onZoomChange?: (zoom: number) => void
   onSelectSegment: (id: string | null) => void
   onSegmentsChange: (segments: EditorSegment[]) => void
   onSegmentsCommit: (previous: EditorSegment[]) => void
+  onSelectGuideStep?: (id: string) => void
+  onGuideStepMove?: (id: string, projectTime: number) => void
   onSeek: (sourceTime: number) => void
 }
 
@@ -34,12 +38,16 @@ export function Timeline({
   frames = [],
   segments,
   captions = [],
+  guideSteps = [],
+  selectedGuideStepId,
   selectedSegmentId,
   zoom = 1,
   onZoomChange,
   onSelectSegment,
   onSegmentsChange,
   onSegmentsCommit,
+  onSelectGuideStep,
+  onGuideStepMove,
   onSeek,
 }: TimelineProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -48,8 +56,30 @@ export function Timeline({
   const [scrubbing, setScrubbing] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [draggingEdge, setDraggingEdge] = useState<{ id: string; edge: Edge } | null>(null)
+  const [draggingGuideStepId, setDraggingGuideStepId] = useState<string | null>(null)
   const displayDuration = Math.max(0.01, sourceDuration)
   const editedDuration = Math.max(0.01, segments.reduce((sum, item) => sum + item.sourceEnd - item.sourceStart, 0))
+
+  const sourceToProject = useCallback((sourceTime: number) => {
+    let elapsed = 0
+    for (const segment of segments) {
+      if (sourceTime < segment.sourceStart) return elapsed
+      if (sourceTime <= segment.sourceEnd) return elapsed + sourceTime - segment.sourceStart
+      elapsed += segment.sourceEnd - segment.sourceStart
+    }
+    return elapsed
+  }, [segments])
+
+  const projectToSource = useCallback((projectTime: number) => {
+    let elapsed = 0
+    const bounded = Math.max(0, Math.min(editedDuration, projectTime))
+    for (const segment of segments) {
+      const length = segment.sourceEnd - segment.sourceStart
+      if (bounded <= elapsed + length) return segment.sourceStart + bounded - elapsed
+      elapsed += length
+    }
+    return segments.at(-1)?.sourceEnd ?? 0
+  }, [editedDuration, segments])
   const contentWidth = `${Math.max(100, zoom * 100)}%`
   const thumbnailCount = Math.max(1, Math.ceil((viewportWidth * zoom) / 112))
   const thumbnailFrames = useMemo(
@@ -157,6 +187,14 @@ export function Timeline({
     setDraggingEdge(null)
   }
 
+  const moveGuideStep = (id: string, clientX: number) => {
+    const sourceTime = sourceAtPointer(clientX)
+    onGuideStepMove?.(id, sourceToProject(sourceTime))
+    onSeek(sourceTime)
+  }
+
+  const sortedGuideSteps = [...guideSteps].sort((a, b) => a.start - b.start)
+
   return (
     <section className="rounded-md border border-border bg-card p-3" aria-label="Video timeline">
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -225,6 +263,53 @@ export function Timeline({
                     </button>
                   ))}
                 </div>
+              )
+            })}
+          </div>
+
+          <div className="mt-2 flex h-5 items-center gap-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            <span>Steps</span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <div className="relative h-9 rounded-sm bg-secondary/40" aria-label="Guide steps timeline">
+            {sortedGuideSteps.length === 0 ? (
+              <span className="absolute inset-0 flex items-center px-2 text-[10px] text-muted-foreground">Add a guide step to place it on the timeline</span>
+            ) : sortedGuideSteps.map((step, index) => {
+              const nextStart = sortedGuideSteps[index + 1]?.start ?? editedDuration
+              const sourceStart = projectToSource(step.start)
+              const sourceEnd = projectToSource(Math.max(step.start, nextStart))
+              const left = (sourceStart / displayDuration) * 100
+              const width = Math.max(0.8, ((sourceEnd - sourceStart) / displayDuration) * 100)
+              const selected = selectedGuideStepId === step.id
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  aria-label={`Move step ${index + 1}: ${step.title || "Untitled step"}`}
+                  aria-pressed={selected}
+                  className={cn(
+                    "absolute inset-y-1 min-w-3 cursor-ew-resize touch-none overflow-hidden rounded-sm border px-2 text-left text-[10px] font-medium transition-colors",
+                    selected ? "z-10 border-primary bg-primary/25 text-foreground ring-1 ring-primary/40" : "border-primary/30 bg-primary/10 text-muted-foreground hover:bg-primary/20 hover:text-foreground",
+                  )}
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    event.currentTarget.setPointerCapture(event.pointerId)
+                    setDraggingGuideStepId(step.id)
+                    onSelectGuideStep?.(step.id)
+                    moveGuideStep(step.id, event.clientX)
+                  }}
+                  onPointerMove={(event) => draggingGuideStepId === step.id && moveGuideStep(step.id, event.clientX)}
+                  onPointerUp={(event) => {
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+                    setDraggingGuideStepId(null)
+                  }}
+                  onPointerCancel={() => setDraggingGuideStepId(null)}
+                >
+                  <span className="block truncate">{index + 1}. {step.title || "Untitled step"}</span>
+                </button>
               )
             })}
           </div>

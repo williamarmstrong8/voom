@@ -56,6 +56,8 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
   const [extensionActive, setExtensionActive] = useState(false)
   const [editLoading, setEditLoading] = useState(false)
   const [editLoadError, setEditLoadError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const handleExtensionRecording = useCallback((result: RecordingResult) => {
     setRecording(result)
@@ -273,8 +275,49 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
     }
   }, [selectedVideo])
 
+  const importVideo = useCallback(async (file: File) => {
+    setImportError(null)
+    if (!file.type.startsWith("video/")) {
+      setImportError("Choose a valid video file.")
+      return
+    }
+
+    setImporting(true)
+    const url = URL.createObjectURL(file)
+    try {
+      const duration = await new Promise<number>((resolve, reject) => {
+        const video = document.createElement("video")
+        video.preload = "metadata"
+        video.onloadedmetadata = () => {
+          const value = video.duration
+          video.removeAttribute("src")
+          video.load()
+          if (Number.isFinite(value) && value > 0) resolve(value)
+          else reject(new Error("Invalid duration"))
+        }
+        video.onerror = () => reject(new Error("Unsupported video"))
+        video.src = url
+      })
+
+      setSelectedVideo(null)
+      setRecording({
+        screen: { blob: file, url, mimeType: file.type || "video/mp4" },
+        camera: null,
+        audio: null,
+        duration,
+      })
+      setMode("editing")
+    } catch {
+      URL.revokeObjectURL(url)
+      setImportError("This video could not be opened. Try an MP4, WebM, or MOV file supported by your browser.")
+    } finally {
+      setImporting(false)
+    }
+  }, [])
+
   // Record button on the dashboard.
   const startNewRecording = useCallback(() => {
+    setImportError(null)
     setSelectedVideo(null)
     setMode("setup")
   }, [])
@@ -394,8 +437,11 @@ export function StudioApp({ initialVideos }: StudioAppProps) {
     return renderShell(
       <Dashboard
         onRecord={startNewRecording}
+        onImportVideo={(file) => void importVideo(file)}
+        importing={importing}
+        importError={importError}
         onOpenVideo={openSavedVideo}
-          videos={videos}
+        videos={videos}
           refresh={refreshVideos}
         setVideos={setVideos}
       />,
