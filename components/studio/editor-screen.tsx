@@ -6,6 +6,7 @@ import {
   Captions,
   Check,
   Circle,
+  ClipboardPaste,
   Clock,
   Download,
   Expand,
@@ -21,6 +22,7 @@ import {
   RotateCcw,
   RotateCw,
   Scissors,
+  Sparkles,
   Square,
   Triangle,
   Trash2,
@@ -37,6 +39,7 @@ import { ThumbnailGenerator } from "@/components/studio/thumbnail-generator"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
 import {
   DEFAULT_BRAND_KIT,
+  parseGuideMarkdown,
   type CaptionCue,
   type EditorSegment,
   type GuideStep,
@@ -420,6 +423,27 @@ export function EditorScreen({
   const deleteGuideStep = useCallback((id: string) => {
     setGuideSteps((steps) => steps.filter((step) => step.id !== id))
   }, [])
+
+  const [bulkText, setBulkText] = useState("")
+  const [showBulkPaste, setShowBulkPaste] = useState(false)
+
+  // Paste an entire Notion guide and split it into steps by callout. Steps are
+  // spread evenly across the edited timeline as a starting point — each can then
+  // be re-pinned to the exact playhead moment.
+  const generateStepsFromMarkdown = useCallback(() => {
+    const parsed = parseGuideMarkdown(bulkText)
+    if (parsed.length === 0) return
+    const total = editedDuration || 0
+    const next: GuideStep[] = parsed.map((step, index) => ({
+      id: crypto.randomUUID(),
+      start: parsed.length > 1 ? Math.round((index * total) / parsed.length) : 0,
+      title: step.title,
+      body: step.body,
+    }))
+    setGuideSteps(next)
+    setBulkText("")
+    setShowBulkPaste(false)
+  }, [bulkText, editedDuration])
   const activeSegment = useMemo(
     () => segments.find((segment) => currentTime >= segment.sourceStart && currentTime <= segment.sourceEnd),
     [currentTime, segments],
@@ -874,15 +898,57 @@ export function EditorScreen({
                   <BookOpen className="size-4 text-muted-foreground" />
                   Build guide
                 </p>
-                <Button size="sm" variant="secondary" onClick={addGuideStep} className="gap-1.5">
-                  <Plus className="size-3.5" />
-                  Add step
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    size="sm"
+                    variant={showBulkPaste ? "default" : "secondary"}
+                    onClick={() => setShowBulkPaste((open) => !open)}
+                    className="gap-1.5"
+                  >
+                    <ClipboardPaste className="size-3.5" />
+                    Paste guide
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={addGuideStep} className="gap-1.5">
+                    <Plus className="size-3.5" />
+                    Add step
+                  </Button>
+                </div>
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Scrub the demo, then add a step at the playhead. Paste each step&apos;s content from Notion as
-                Markdown — headers, bullets, callouts, and code blocks all render.
+                Paste your whole Notion guide to split it into steps automatically — each callout starts a new
+                step. Or add steps one at a time at the playhead. Headers, bullets, callouts, and code blocks all
+                render.
               </p>
+
+              {showBulkPaste && (
+                <div className="mt-3 rounded-sm border border-border bg-background p-2.5">
+                  <label htmlFor="guide-bulk-paste" className="mb-1.5 block text-[11px] font-medium text-foreground">
+                    Paste full build guide
+                  </label>
+                  <textarea
+                    id="guide-bulk-paste"
+                    value={bulkText}
+                    onChange={(event) => setBulkText(event.target.value)}
+                    placeholder={"Paste everything from Notion here.\n\n> 💡 Step one callout\nContent for step one…\n\n> 🚀 Step two callout\nContent for step two…"}
+                    rows={8}
+                    className="w-full resize-y rounded-sm border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/50"
+                  />
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
+                    Each callout becomes a step title; everything beneath it (until the next callout) becomes that
+                    step&apos;s content. Steps are spread across the timeline — fine-tune each with its timestamp.
+                    {sortedGuideSteps.length > 0 && " This replaces your current steps."}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Button size="sm" onClick={generateStepsFromMarkdown} disabled={!bulkText.trim()} className="gap-1.5">
+                      <Sparkles className="size-3.5" />
+                      Generate steps
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setShowBulkPaste(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {sortedGuideSteps.length === 0 ? (
                 <div className="mt-3 rounded-sm border border-dashed border-border px-3 py-6 text-center">

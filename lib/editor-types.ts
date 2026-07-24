@@ -51,6 +51,90 @@ export function activeGuideStep(steps: GuideStep[], projectTime: number): GuideS
   return active
 }
 
+/** A step parsed from a pasted guide, before it gets an id and a start time. */
+export interface ParsedGuideStep {
+  title: string
+  body: string
+}
+
+const CALLOUT_BLOCKQUOTE = /^\s*>\s?/
+const CALLOUT_EMOJI = /^\s*\p{Extended_Pictographic}/u
+
+/** True when a line begins a callout — either a Markdown blockquote or an emoji-led line. */
+function isCalloutStart(line: string): boolean {
+  return CALLOUT_BLOCKQUOTE.test(line) || CALLOUT_EMOJI.test(line)
+}
+
+/** Strip blockquote markers and a single leading emoji so the callout reads as a title. */
+function calloutToTitle(lines: string[]): string {
+  return lines
+    .map((line) =>
+      line
+        .replace(CALLOUT_BLOCKQUOTE, "")
+        .replace(/^\s*\p{Extended_Pictographic}\uFE0F?\s*/u, "")
+        .trim(),
+    )
+    .filter(Boolean)
+    .join(" ")
+    .trim()
+}
+
+function trimBlankEdges(lines: string[]): string {
+  let start = 0
+  let end = lines.length
+  while (start < end && lines[start].trim() === "") start++
+  while (end > start && lines[end - 1].trim() === "") end--
+  return lines.slice(start, end).join("\n")
+}
+
+/**
+ * Split a whole pasted build guide into steps, breaking on callouts. Each callout
+ * line (a Markdown blockquote `>` or an emoji-led line) starts a new step whose
+ * title is the callout text; every line beneath it — until the next callout —
+ * becomes that step's Markdown body. Content before the first callout, if any,
+ * becomes an "Introduction" step so nothing is lost.
+ */
+export function parseGuideMarkdown(markdown: string): ParsedGuideStep[] {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n")
+  const steps: ParsedGuideStep[] = []
+  const intro: string[] = []
+  let current: { titleLines: string[]; bodyLines: string[] } | null = null
+
+  const flush = () => {
+    if (!current) return
+    steps.push({
+      title: calloutToTitle(current.titleLines) || "Untitled step",
+      body: trimBlankEdges(current.bodyLines),
+    })
+    current = null
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (isCalloutStart(line)) {
+      flush()
+      const titleLines: string[] = [line]
+      // Blockquote callouts can span consecutive `>` lines — gather them all.
+      if (CALLOUT_BLOCKQUOTE.test(line)) {
+        while (i + 1 < lines.length && CALLOUT_BLOCKQUOTE.test(lines[i + 1])) {
+          titleLines.push(lines[++i])
+        }
+      }
+      current = { titleLines, bodyLines: [] }
+    } else if (current) {
+      current.bodyLines.push(line)
+    } else {
+      intro.push(line)
+    }
+  }
+  flush()
+
+  const introBody = trimBlankEdges(intro)
+  if (introBody) steps.unshift({ title: "Introduction", body: introBody })
+
+  return steps
+}
+
 export interface BrandKit {
   name: string
   primaryColor: string
