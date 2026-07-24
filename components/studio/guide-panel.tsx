@@ -72,11 +72,13 @@ export function GuidePanel({
       >
         {shown ? (
           <article key={shown.id}>
-            <div className="mb-3 flex items-baseline gap-2">
-              <h2 className="text-pretty text-base font-semibold tracking-tight">{shown.title || "Untitled step"}</h2>
-              <span className="shrink-0 text-copy-13 tabular-nums text-muted-foreground">
-                {formatTimestamp(shown.start)}
-              </span>
+            <div className="mb-4 rounded-md border border-[var(--ds-gray-alpha-400)] bg-[var(--ds-background-100)] px-3 py-3 shadow-[var(--ds-shadow-border)]">
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-pretty text-heading-16">{shown.title || "Untitled step"}</h2>
+                <span className="ml-auto shrink-0 text-copy-13 tabular-nums text-[var(--ds-gray-700)]">
+                  {formatTimestamp(shown.start)}
+                </span>
+              </div>
             </div>
             {shown.body.trim() ? (
               <GuideMarkdown>{shown.body}</GuideMarkdown>

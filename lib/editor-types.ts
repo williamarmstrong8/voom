@@ -59,10 +59,12 @@ export interface ParsedGuideStep {
 
 const CALLOUT_BLOCKQUOTE = /^\s*>\s?/
 const CALLOUT_EMOJI = /^\s*\p{Extended_Pictographic}/u
+const CALLOUT_ASIDE_OPEN = /^\s*<aside(?:\s[^>]*)?>\s*$/i
+const CALLOUT_ASIDE_CLOSE = /^\s*<\/aside>\s*$/i
 
-/** True when a line begins a callout — either a Markdown blockquote or an emoji-led line. */
+/** True when a line begins a callout in Markdown or Notion's copied HTML-flavored Markdown. */
 function isCalloutStart(line: string): boolean {
-  return CALLOUT_BLOCKQUOTE.test(line) || CALLOUT_EMOJI.test(line)
+  return CALLOUT_BLOCKQUOTE.test(line) || CALLOUT_EMOJI.test(line) || CALLOUT_ASIDE_OPEN.test(line)
 }
 
 /** Strip blockquote markers and a single leading emoji so the callout reads as a title. */
@@ -72,6 +74,8 @@ function calloutToTitle(lines: string[]): string {
       line
         .replace(CALLOUT_BLOCKQUOTE, "")
         .replace(/^\s*\p{Extended_Pictographic}\uFE0F?\s*/u, "")
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/^\*\*(.*?)\*\*$/, "$1")
         .trim(),
     )
     .filter(Boolean)
@@ -113,14 +117,29 @@ export function parseGuideMarkdown(markdown: string): ParsedGuideStep[] {
     const line = lines[i]
     if (isCalloutStart(line)) {
       flush()
-      const titleLines: string[] = [line]
-      // Blockquote callouts can span consecutive `>` lines — gather them all.
-      if (CALLOUT_BLOCKQUOTE.test(line)) {
-        while (i + 1 < lines.length && CALLOUT_BLOCKQUOTE.test(lines[i + 1])) {
+      const titleLines: string[] = []
+
+      if (CALLOUT_ASIDE_OPEN.test(line)) {
+        // Notion's copy/export format represents callouts as an HTML-style
+        // <aside> block. Its contents are the step title, not body content.
+        while (i + 1 < lines.length && !CALLOUT_ASIDE_CLOSE.test(lines[i + 1])) {
           titleLines.push(lines[++i])
         }
+        if (i + 1 < lines.length && CALLOUT_ASIDE_CLOSE.test(lines[i + 1])) i++
+      } else {
+        titleLines.push(line)
+        // Markdown blockquote callouts can span consecutive `>` lines.
+        if (CALLOUT_BLOCKQUOTE.test(line)) {
+          while (i + 1 < lines.length && CALLOUT_BLOCKQUOTE.test(lines[i + 1])) {
+            titleLines.push(lines[++i])
+          }
+        }
       }
+
       current = { titleLines, bodyLines: [] }
+    } else if (CALLOUT_ASIDE_CLOSE.test(line)) {
+      // Ignore an unmatched closing tag instead of rendering it as guide text.
+      continue
     } else if (current) {
       current.bodyLines.push(line)
     } else {
@@ -130,7 +149,11 @@ export function parseGuideMarkdown(markdown: string): ParsedGuideStep[] {
   flush()
 
   const introBody = trimBlankEdges(intro)
-  if (introBody) steps.unshift({ title: "Introduction", body: introBody })
+  // A lone document heading before the first callout is the Notion page title,
+  // not a useful timed step. Preserve richer preamble content as Introduction.
+  if (introBody && !/^#{1,6}\s+[^\n]+$/.test(introBody)) {
+    steps.unshift({ title: "Introduction", body: introBody })
+  }
 
   return steps
 }

@@ -9,20 +9,34 @@ import { cn } from "@/lib/utils"
  * numbered lists, callouts, code blocks, tables) using the app's design tokens.
  * Pasted content from Notion's Markdown export maps cleanly onto these.
  */
+function normalizeNotionMarkdown(markdown: string) {
+  return markdown
+    .replace(/<aside(?:\s[^>]*)?>\s*([\s\S]*?)\s*<\/aside>/gi, (_, content: string) =>
+      content
+        .trim()
+        .split("\n")
+        .map((line) => `> ${line}`)
+        .join("\n"),
+    )
+    .replace(/^\s*<\/?aside(?:\s[^>]*)?>\s*$/gim, "")
+}
+
 export function GuideMarkdown({ children, className }: { children: string; className?: string }) {
+  const markdown = normalizeNotionMarkdown(children)
+
   return (
-    <div className={cn("text-copy-14 leading-relaxed text-foreground", className)}>
+    <div className={cn("text-copy-14 leading-6 text-[var(--ds-gray-1000)]", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           h1: ({ children }) => (
-            <h1 className="mt-5 mb-2 text-pretty text-lg font-semibold tracking-tight first:mt-0">{children}</h1>
+            <h1 className="mt-6 mb-2 text-pretty text-heading-20 first:mt-0">{children}</h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mt-5 mb-2 text-pretty text-base font-semibold tracking-tight first:mt-0">{children}</h2>
+            <h2 className="mt-5 mb-2 text-pretty text-heading-16 first:mt-0">{children}</h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mt-4 mb-1.5 text-pretty text-sm font-semibold tracking-tight first:mt-0">{children}</h3>
+            <h3 className="mt-4 mb-1.5 text-pretty text-heading-14 first:mt-0">{children}</h3>
           ),
           p: ({ children }) => <p className="my-2 text-pretty first:mt-0 last:mb-0">{children}</p>,
           a: ({ children, href }) => (
@@ -37,17 +51,21 @@ export function GuideMarkdown({ children, className }: { children: string; class
           ),
           strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
           em: ({ children }) => <em className="italic">{children}</em>,
-          ul: ({ children }) => <ul className="my-2 flex list-disc flex-col gap-1 pl-5 marker:text-muted-foreground">{children}</ul>,
-          ol: ({ children }) => <ol className="my-2 flex list-decimal flex-col gap-1 pl-5 marker:text-muted-foreground">{children}</ol>,
-          li: ({ children }) => <li className="text-pretty pl-1">{children}</li>,
-          hr: () => <hr className="my-4 border-border" />,
+          ul: ({ children }) => (
+            <ul className="my-2 flex list-disc flex-col gap-1.5 pl-5 marker:text-[var(--ds-gray-700)]">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="my-2 flex list-decimal flex-col gap-1.5 pl-5 marker:text-[var(--ds-gray-700)]">{children}</ol>
+          ),
+          li: ({ children }) => <li className="text-pretty pl-0.5 [&>p]:my-0">{children}</li>,
+          hr: () => <hr className="my-5 border-[var(--ds-gray-alpha-400)]" />,
           blockquote: ({ children }) => (
-            <blockquote className="my-3 rounded-md border border-border bg-secondary/60 px-3.5 py-2.5 text-pretty [&>p]:my-0">
+            <blockquote className="my-3 rounded-md border border-[var(--ds-gray-alpha-400)] bg-[var(--ds-background-100)] px-3 py-2.5 text-pretty shadow-[var(--ds-shadow-border)] [&>p]:my-0">
               {children}
             </blockquote>
           ),
           pre: ({ children }) => (
-            <pre className="my-3 overflow-x-auto rounded-md border border-border bg-[var(--ds-background-100)] p-3 font-mono text-copy-13 leading-relaxed">
+            <pre className="my-3 overflow-x-auto rounded-md bg-[var(--ds-gray-100)] p-3 font-mono text-copy-13 leading-6 shadow-[var(--ds-shadow-border)]">
               {children}
             </pre>
           ),
@@ -77,7 +95,7 @@ export function GuideMarkdown({ children, className }: { children: string; class
             ) : null,
         }}
       >
-        {children}
+        {markdown}
       </ReactMarkdown>
     </div>
   )

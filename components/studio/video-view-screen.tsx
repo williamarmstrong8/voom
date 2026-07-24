@@ -283,7 +283,7 @@ export function VideoViewScreen({
         className={cn(
           "overflow-hidden",
           hasGuide
-            ? "flex flex-col gap-4 lg:flex-row lg:items-stretch lg:justify-center"
+            ? "flex flex-col items-start gap-4 lg:flex-row lg:justify-center"
             : "flex items-start justify-center",
         )}
         aria-label="Video player"
@@ -427,7 +427,7 @@ export function VideoViewScreen({
                   audioRef.current.muted = videoRef.current.muted
                 }
               }}
-              className={`h-full w-full object-fill transition-opacity ${playerReady ? "opacity-100" : "opacity-0"}`}
+              className={`absolute inset-0 h-full w-full object-contain transition-opacity ${playerReady ? "opacity-100" : "opacity-0"}`}
             >
               <track kind="captions" />
             </video>
@@ -540,7 +540,7 @@ export function VideoViewScreen({
           <GuidePanel
             steps={guideSteps}
             currentTime={currentTime}
-            className="max-h-[60vh] w-full shrink-0 lg:max-h-none lg:w-[22rem]"
+            className="max-h-[60vh] w-full shrink-0 self-start lg:max-h-[70vh] lg:w-[22rem]"
           />
         )}
       </section>
