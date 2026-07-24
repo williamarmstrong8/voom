@@ -27,7 +27,7 @@ export interface EditorState {
    * Optional timed build-guide steps shown beside the demo. Omitted by projects
    * saved before the build guide existed; interpreted as "no guide".
    */
-  guideSteps?: { id: string; start: number; title: string; body: string }[]
+  guideSteps?: { id: string; start: number; end?: number; title: string; body: string }[]
   brandKit: {
     name: string
     primaryColor: string

@@ -25,7 +25,7 @@ export function GuideMarkdown({ children, className }: { children: string; class
   const markdown = normalizeNotionMarkdown(children)
 
   return (
-    <div className={cn("min-w-0 max-w-full overflow-hidden break-words text-copy-14 leading-6 text-[var(--ds-gray-1000)] [overflow-wrap:anywhere]", className)}>
+    <div className={cn("w-full min-w-0 max-w-full break-words text-copy-14 leading-6 text-[var(--ds-gray-1000)] [overflow-wrap:anywhere]", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -65,7 +65,7 @@ export function GuideMarkdown({ children, className }: { children: string; class
             </blockquote>
           ),
           pre: ({ children }) => (
-            <pre className="my-3 max-w-full overflow-x-auto rounded-md bg-[var(--ds-gray-100)] p-3 font-mono text-copy-13 leading-6 shadow-[var(--ds-shadow-border)]">
+            <pre className="my-3 block w-full min-w-0 max-w-full overflow-x-auto rounded-md border border-border bg-[var(--ds-gray-100)] p-3 font-mono text-copy-13 leading-6 shadow-[var(--ds-shadow-border)] [scrollbar-gutter:stable]">
               {children}
             </pre>
           ),
@@ -75,14 +75,14 @@ export function GuideMarkdown({ children, className }: { children: string; class
               return <code className={cn("font-mono text-foreground", codeClass)}>{children}</code>
             }
             return (
-              <code className="rounded-sm border border-border bg-secondary px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">
+              <code className="break-all rounded-sm border border-border bg-secondary px-1.5 py-0.5 font-mono text-[0.85em] text-foreground">
                 {children}
               </code>
             )
           },
           table: ({ children }) => (
-            <div className="my-3 overflow-x-auto rounded-md border border-border">
-              <table className="w-full border-collapse text-copy-13">{children}</table>
+            <div className="my-3 block w-full min-w-0 max-w-full overflow-x-auto rounded-md border border-border pb-1 [scrollbar-gutter:stable]">
+              <table className="min-w-full w-max border-collapse text-copy-13">{children}</table>
             </div>
           ),
           thead: ({ children }) => <thead className="bg-secondary/60">{children}</thead>,

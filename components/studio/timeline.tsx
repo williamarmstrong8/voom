@@ -26,7 +26,7 @@ interface TimelineProps {
   onSegmentsChange: (segments: EditorSegment[]) => void
   onSegmentsCommit: (previous: EditorSegment[]) => void
   onSelectGuideStep?: (id: string) => void
-  onGuideStepMove?: (id: string, projectTime: number) => void
+  onGuideStepChange?: (id: string, start: number, end: number) => void
   onSeek: (sourceTime: number) => void
 }
 
@@ -47,7 +47,7 @@ export function Timeline({
   onSegmentsChange,
   onSegmentsCommit,
   onSelectGuideStep,
-  onGuideStepMove,
+  onGuideStepChange,
   onSeek,
 }: TimelineProps) {
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -56,7 +56,7 @@ export function Timeline({
   const [scrubbing, setScrubbing] = useState(false)
   const [viewportWidth, setViewportWidth] = useState(0)
   const [draggingEdge, setDraggingEdge] = useState<{ id: string; edge: Edge } | null>(null)
-  const [draggingGuideStepId, setDraggingGuideStepId] = useState<string | null>(null)
+  const [draggingGuideEdge, setDraggingGuideEdge] = useState<{ id: string; edge: Edge } | null>(null)
   const displayDuration = Math.max(0.01, sourceDuration)
   const editedDuration = Math.max(0.01, segments.reduce((sum, item) => sum + item.sourceEnd - item.sourceStart, 0))
 
@@ -132,9 +132,21 @@ export function Timeline({
     scrub(event.clientX)
   }
 
-  const tickStep = displayDuration <= 15 ? 1 : displayDuration <= 60 ? 5 : displayDuration <= 180 ? 10 : 30
-  const minorStep = tickStep / 5
-  const ticks = Array.from({ length: Math.floor(displayDuration / minorStep) + 1 }, (_, index) => index * minorStep)
+  const { tickStep, minorStep, ticks } = useMemo(() => {
+    const trackPixels = Math.max(1, viewportWidth * zoom)
+    const targetMajorTicks = Math.max(2, Math.floor(trackPixels / 88))
+    const rawStep = displayDuration / targetMajorTicks
+    const magnitude = 10 ** Math.floor(Math.log10(Math.max(rawStep, 0.001)))
+    const normalized = rawStep / magnitude
+    const niceMultiplier = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+    const major = niceMultiplier * magnitude
+    const minor = major / 5
+    return {
+      tickStep: major,
+      minorStep: minor,
+      ticks: Array.from({ length: Math.floor(displayDuration / minor) + 1 }, (_, index) => index * minor),
+    }
+  }, [displayDuration, viewportWidth, zoom])
   const playhead = (currentTime / displayDuration) * 100
 
   useEffect(() => {
@@ -187,13 +199,53 @@ export function Timeline({
     setDraggingEdge(null)
   }
 
-  const moveGuideStep = (id: string, clientX: number) => {
-    const sourceTime = sourceAtPointer(clientX)
-    onGuideStepMove?.(id, sourceToProject(sourceTime))
-    onSeek(sourceTime)
+  const sortedGuideSteps = useMemo(
+    () => [...guideSteps].sort((a, b) => a.start - b.start),
+    [guideSteps],
+  )
+  const guideRanges = useMemo(
+    () => sortedGuideSteps.map((step, index) => ({
+      ...step,
+      end: Math.max(step.start + 0.25, Math.min(editedDuration, step.end ?? sortedGuideSteps[index + 1]?.start ?? editedDuration)),
+    })),
+    [editedDuration, sortedGuideSteps],
+  )
+
+  const beginGuideEdgeDrag = (id: string, edge: Edge, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setDraggingGuideEdge({ id, edge })
   }
 
-  const sortedGuideSteps = [...guideSteps].sort((a, b) => a.start - b.start)
+  const moveGuideEdge = (id: string, edge: Edge, clientX: number) => {
+    if (draggingGuideEdge?.id !== id || draggingGuideEdge.edge !== edge) return
+    const index = guideRanges.findIndex((step) => step.id === id)
+    if (index < 0) return
+    const step = guideRanges[index]
+    const minimumDuration = Math.min(1, Math.max(0.25, editedDuration / 100))
+    const previousEnd = guideRanges[index - 1]?.end ?? 0
+    const nextStart = guideRanges[index + 1]?.start ?? editedDuration
+    const pointerProjectTime = sourceToProject(sourceAtPointer(clientX))
+    const pixelsPerSecond = Math.max(1, (viewportWidth * zoom) / editedDuration)
+    const snapThreshold = 10 / pixelsPerSecond
+    const snapTarget = edge === "start" ? previousEnd : nextStart
+    const snapped = Math.abs(pointerProjectTime - snapTarget) <= snapThreshold ? snapTarget : pointerProjectTime
+    const start = edge === "start"
+      ? Math.max(previousEnd, Math.min(step.end - minimumDuration, snapped))
+      : step.start
+    const end = edge === "end"
+      ? Math.min(nextStart, Math.max(step.start + minimumDuration, snapped))
+      : step.end
+    onGuideStepChange?.(id, start, end)
+    onSeek(projectToSource(edge === "start" ? start : end))
+  }
+
+  const endGuideEdgeDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    setDraggingGuideEdge(null)
+  }
 
   return (
     <section className="rounded-md border border-border bg-card p-3" aria-label="Video timeline">
@@ -274,42 +326,51 @@ export function Timeline({
           <div className="relative h-9 rounded-sm bg-secondary/40" aria-label="Guide steps timeline">
             {sortedGuideSteps.length === 0 ? (
               <span className="absolute inset-0 flex items-center px-2 text-[10px] text-muted-foreground">Add a guide step to place it on the timeline</span>
-            ) : sortedGuideSteps.map((step, index) => {
-              const nextStart = sortedGuideSteps[index + 1]?.start ?? editedDuration
+            ) : guideRanges.map((step, index) => {
               const sourceStart = projectToSource(step.start)
-              const sourceEnd = projectToSource(Math.max(step.start, nextStart))
+              const sourceEnd = projectToSource(step.end)
               const left = (sourceStart / displayDuration) * 100
               const width = Math.max(0.8, ((sourceEnd - sourceStart) / displayDuration) * 100)
               const selected = selectedGuideStepId === step.id
               return (
-                <button
+                <div
                   key={step.id}
-                  type="button"
-                  aria-label={`Move step ${index + 1}: ${step.title || "Untitled step"}`}
-                  aria-pressed={selected}
                   className={cn(
-                    "absolute inset-y-1 min-w-3 cursor-ew-resize touch-none overflow-hidden rounded-sm border px-2 text-left text-[10px] font-medium transition-colors",
+                    "group absolute inset-y-1 min-w-3 touch-none overflow-visible rounded-sm border text-[10px] font-medium transition-colors",
                     selected ? "z-10 border-primary bg-primary/25 text-foreground ring-1 ring-primary/40" : "border-primary/30 bg-primary/10 text-muted-foreground hover:bg-primary/20 hover:text-foreground",
                   )}
                   style={{ left: `${left}%`, width: `${width}%` }}
-                  onPointerDown={(event) => {
-                    if (event.button !== 0) return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    event.currentTarget.setPointerCapture(event.pointerId)
-                    setDraggingGuideStepId(step.id)
-                    onSelectGuideStep?.(step.id)
-                    moveGuideStep(step.id, event.clientX)
-                  }}
-                  onPointerMove={(event) => draggingGuideStepId === step.id && moveGuideStep(step.id, event.clientX)}
-                  onPointerUp={(event) => {
-                    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-                    setDraggingGuideStepId(null)
-                  }}
-                  onPointerCancel={() => setDraggingGuideStepId(null)}
                 >
-                  <span className="block truncate">{index + 1}. {step.title || "Untitled step"}</span>
-                </button>
+                  <button
+                    type="button"
+                    aria-label={`Select step ${index + 1}: ${step.title || "Untitled step"}`}
+                    aria-pressed={selected}
+                    className="absolute inset-0 w-full cursor-pointer overflow-hidden rounded-[inherit] px-2 text-left"
+                    onClick={() => onSelectGuideStep?.(step.id)}
+                  >
+                    <span className="block truncate">{index + 1}. {step.title || "Untitled step"}</span>
+                  </button>
+                  {selected && (["start", "end"] as const).map((edge) => (
+                    <button
+                      key={edge}
+                      type="button"
+                      aria-label={`Trim step ${index + 1} ${edge}`}
+                      className={cn(
+                        "absolute inset-y-0 z-20 w-5 cursor-ew-resize touch-none",
+                        edge === "start" ? "-left-2" : "-right-2",
+                      )}
+                      onPointerDown={(event) => beginGuideEdgeDrag(step.id, edge, event)}
+                      onPointerMove={(event) => moveGuideEdge(step.id, edge, event.clientX)}
+                      onPointerUp={endGuideEdgeDrag}
+                      onPointerCancel={endGuideEdgeDrag}
+                    >
+                      <span className={cn(
+                        "absolute top-1/2 h-7 w-2 -translate-y-1/2 rounded-sm bg-primary shadow-sm",
+                        edge === "start" ? "left-1" : "right-1",
+                      )} />
+                    </button>
+                  ))}
+                </div>
               )
             })}
           </div>

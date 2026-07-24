@@ -71,7 +71,7 @@ export function GuidePanel({
         aria-live="polite"
       >
         {shown ? (
-          <article key={shown.id} className="min-w-0 max-w-full overflow-hidden">
+          <article key={shown.id} className="w-full min-w-0 max-w-full">
             <div className="mb-4 rounded-md border border-[var(--ds-gray-alpha-400)] bg-[var(--ds-background-100)] px-3 py-3 shadow-[var(--ds-shadow-border)]">
               <div className="flex items-baseline gap-2">
                 <h2 className="text-pretty text-heading-16">{shown.title || "Untitled step"}</h2>

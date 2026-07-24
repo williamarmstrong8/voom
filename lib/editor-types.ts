@@ -32,6 +32,8 @@ export interface TitleCard {
 export interface GuideStep {
   id: string
   start: number
+  /** Explicit project-time end. Older saved guides omit this and derive it from the next step. */
+  end?: number
   title: string
   body: string
 }
@@ -43,12 +45,12 @@ export interface GuideStep {
  */
 export function activeGuideStep(steps: GuideStep[], projectTime: number): GuideStep | null {
   const sorted = [...steps].sort((a, b) => a.start - b.start)
-  let active: GuideStep | null = null
-  for (const step of sorted) {
-    if (projectTime + 0.001 >= step.start) active = step
-    else break
+  for (let index = 0; index < sorted.length; index++) {
+    const step = sorted[index]
+    const end = step.end ?? sorted[index + 1]?.start ?? Number.POSITIVE_INFINITY
+    if (projectTime + 0.001 >= step.start && projectTime < end - 0.001) return step
   }
-  return active
+  return null
 }
 
 /** A step parsed from a pasted guide, before it gets an id and a start time. */

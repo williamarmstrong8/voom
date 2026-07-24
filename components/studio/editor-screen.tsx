@@ -394,39 +394,67 @@ export function EditorScreen({
 
   // Build guide is timed in project (edited-timeline) seconds, matching what the
   // viewer scrubber shows. Steps stay sorted by start so ordering is stable.
-  const sortedGuideSteps = useMemo(
-    () => [...guideSteps].sort((a, b) => a.start - b.start),
-    [guideSteps],
-  )
+  const sortedGuideSteps = useMemo(() => {
+    const sorted = [...guideSteps].sort((a, b) => a.start - b.start)
+    return sorted.map((step, index) => ({
+      ...step,
+      end: Math.max(step.start + 0.25, Math.min(editedDuration, step.end ?? sorted[index + 1]?.start ?? editedDuration)),
+    }))
+  }, [editedDuration, guideSteps])
   const guideProjectTime = useMemo(() => sourceToProjectTime(currentTime), [sourceToProjectTime, currentTime])
 
   const addGuideStep = useCallback(() => {
-    const start = Math.max(0, Math.round(sourceToProjectTime(currentTime)))
-    setGuideSteps((steps) =>
-      [...steps, { id: crypto.randomUUID(), start, title: "", body: "" }].sort((a, b) => a.start - b.start),
-    )
-  }, [currentTime, sourceToProjectTime])
+    const playhead = Math.max(0, Math.min(editedDuration, sourceToProjectTime(currentTime)))
+    setGuideSteps((steps) => {
+      const sorted = [...steps].sort((a, b) => a.start - b.start)
+      const ranges = sorted.map((step, index) => ({
+        ...step,
+        end: step.end ?? sorted[index + 1]?.start ?? editedDuration,
+      }))
+      const containing = ranges.find((step) => playhead >= step.start && playhead < (step.end ?? editedDuration))
+      if (containing) {
+        setSelectedGuideStepId(containing.id)
+        return steps
+      }
+      const previousEnd = ranges.filter((step) => (step.end ?? 0) <= playhead).at(-1)?.end ?? 0
+      const nextStart = ranges.find((step) => step.start >= playhead)?.start ?? editedDuration
+      const start = Math.max(previousEnd, playhead)
+      const end = Math.min(nextStart, Math.max(start + 1, start + Math.min(5, (nextStart - start) / 2)))
+      if (end - start < 0.25) return steps
+      const id = crypto.randomUUID()
+      setSelectedGuideStepId(id)
+      return [...steps, { id, start, end, title: "", body: "" }].sort((a, b) => a.start - b.start)
+    })
+  }, [currentTime, editedDuration, sourceToProjectTime])
 
   const updateGuideStep = useCallback((id: string, patch: Partial<Omit<GuideStep, "id">>) => {
     setGuideSteps((steps) => steps.map((step) => (step.id === id ? { ...step, ...patch } : step)))
   }, [])
 
-  const moveGuideStep = useCallback((id: string, projectTime: number) => {
-    const start = Math.max(0, Math.min(editedDuration, projectTime))
+  const resizeGuideStep = useCallback((id: string, start: number, end: number) => {
     setGuideSteps((steps) =>
-      steps.map((step) => (step.id === id ? { ...step, start } : step)).sort((a, b) => a.start - b.start),
+      steps.map((step) => (step.id === id ? { ...step, start, end } : step)).sort((a, b) => a.start - b.start),
     )
-  }, [editedDuration])
+  }, [])
 
   const setGuideStepToPlayhead = useCallback(
     (id: string) => {
-      const start = Math.max(0, Math.round(sourceToProjectTime(currentTime)))
-      setGuideSteps((steps) =>
-        steps.map((step) => (step.id === id ? { ...step, start } : step)).sort((a, b) => a.start - b.start),
-      )
+      const playhead = Math.max(0, Math.min(editedDuration, sourceToProjectTime(currentTime)))
+      setGuideSteps((steps) => {
+        const sorted = [...steps].sort((a, b) => a.start - b.start)
+        const index = sorted.findIndex((step) => step.id === id)
+        if (index < 0) return steps
+        const step = sorted[index]
+        const currentEnd = step.end ?? sorted[index + 1]?.start ?? editedDuration
+        const duration = Math.max(0.25, currentEnd - step.start)
+        const previousEnd = sorted[index - 1]?.end ?? sorted[index - 1]?.start ?? 0
+        const nextStart = sorted[index + 1]?.start ?? editedDuration
+        const start = Math.max(previousEnd, Math.min(nextStart - duration, playhead))
+        return sorted.map((item) => item.id === id ? { ...item, start, end: start + duration } : item)
+      })
       setSelectedGuideStepId(id)
     },
-    [currentTime, sourceToProjectTime],
+    [currentTime, editedDuration, sourceToProjectTime],
   )
 
   const deleteGuideStep = useCallback((id: string) => {
@@ -445,7 +473,8 @@ export function EditorScreen({
     const total = editedDuration || 0
     const next: GuideStep[] = parsed.map((step, index) => ({
       id: crypto.randomUUID(),
-      start: parsed.length > 1 ? Math.round((index * total) / parsed.length) : 0,
+      start: parsed.length > 1 ? (index * total) / parsed.length : 0,
+      end: parsed.length > 1 ? ((index + 1) * total) / parsed.length : total,
       title: step.title,
       body: step.body,
     }))
@@ -855,7 +884,7 @@ export function EditorScreen({
               setSelectedGuideStepId(id)
               setActiveTool("guide")
             }}
-            onGuideStepMove={moveGuideStep}
+            onGuideStepChange={resizeGuideStep}
             onSeek={seek}
           />
         </div>
@@ -909,12 +938,12 @@ export function EditorScreen({
 
           {activeTool === "guide" && (
             <div className="rounded-md border border-border bg-card p-4">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-col items-stretch gap-3">
                 <p className="flex items-center gap-2 text-sm font-medium">
                   <BookOpen className="size-4 text-muted-foreground" />
                   Build guide
                 </p>
-                <div className="flex items-center gap-1.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <Button
                     size="sm"
                     variant={showBulkPaste ? "default" : "secondary"}
@@ -947,7 +976,7 @@ export function EditorScreen({
                     onChange={(event) => setBulkText(event.target.value)}
                     placeholder={"Paste everything from Notion here.\n\n> 💡 Step one callout\nContent for step one…\n\n> 🚀 Step two callout\nContent for step two…"}
                     rows={8}
-                    className="w-full resize-y rounded-sm border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/50"
+                    className="block w-full min-w-0 max-w-full resize-y overflow-auto rounded-sm border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/50"
                   />
                   <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
                     Each callout becomes a step title; everything beneath it (until the next callout) becomes that
@@ -978,7 +1007,7 @@ export function EditorScreen({
                     <div
                       key={step.id}
                       className={cn(
-                        "min-w-0 max-w-full overflow-hidden rounded-sm border bg-background p-2.5",
+                        "min-w-0 max-w-full rounded-sm border bg-background p-2.5",
                         selectedGuideStepId === step.id ? "border-primary ring-1 ring-primary/30" : "border-border",
                       )}
                       onFocusCapture={() => setSelectedGuideStepId(step.id)}
@@ -1011,7 +1040,7 @@ export function EditorScreen({
                         onChange={(event) => updateGuideStep(step.id, { title: event.target.value })}
                         placeholder="Step title"
                         aria-label={`Step ${index + 1} title`}
-                        className="mb-2 w-full rounded-sm border border-border bg-card px-2 py-1.5 text-xs font-medium outline-none focus:border-primary/50"
+                        className="mb-2 block w-full min-w-0 max-w-full rounded-sm border border-border bg-card px-2 py-1.5 text-xs font-medium outline-none focus:border-primary/50"
                       />
                       <textarea
                         value={step.body}
@@ -1019,7 +1048,7 @@ export function EditorScreen({
                         placeholder={"Paste Markdown from Notion…\n\n## Heading\n- A bullet\n> A callout\n\n```\ncode block\n```"}
                         rows={5}
                         aria-label={`Step ${index + 1} content`}
-                        className="w-full resize-y rounded-sm border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/50"
+                        className="block w-full min-w-0 max-w-full resize-y overflow-auto rounded-sm border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/50"
                       />
                     </div>
                   ))}
