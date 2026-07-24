@@ -23,6 +23,34 @@ export interface TitleCard {
   subtitle: string
 }
 
+/**
+ * A single step of a build guide, shown beside the demo while it plays. A step
+ * becomes active at `start` (in project/edited-timeline seconds) and stays
+ * visible until the next step's start — exactly one step shows at a time.
+ * `body` holds Notion-style Markdown (headers, bullets, callouts, code blocks).
+ */
+export interface GuideStep {
+  id: string
+  start: number
+  title: string
+  body: string
+}
+
+/**
+ * Resolve which guide step should be visible at a given project time. Steps are
+ * sorted by start; the active one is the last step whose start is <= time. Before
+ * the first step's start, nothing shows (returns null).
+ */
+export function activeGuideStep(steps: GuideStep[], projectTime: number): GuideStep | null {
+  const sorted = [...steps].sort((a, b) => a.start - b.start)
+  let active: GuideStep | null = null
+  for (const step of sorted) {
+    if (projectTime + 0.001 >= step.start) active = step
+    else break
+  }
+  return active
+}
+
 export interface BrandKit {
   name: string
   primaryColor: string

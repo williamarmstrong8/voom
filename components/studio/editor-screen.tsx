@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  BookOpen,
   Captions,
   Check,
   Circle,
+  Clock,
   Download,
   Expand,
   Film,
@@ -12,6 +14,7 @@ import {
   Loader2,
   Pause,
   Play,
+  Plus,
   RectangleHorizontal,
   Redo2,
   Save,
@@ -28,6 +31,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CameraOverlay } from "@/components/studio/camera-overlay"
+import { GuidePanel } from "@/components/studio/guide-panel"
 import { Timeline } from "@/components/studio/timeline"
 import { ThumbnailGenerator } from "@/components/studio/thumbnail-generator"
 import { useFfmpeg } from "@/hooks/use-ffmpeg"
@@ -35,6 +39,7 @@ import {
   DEFAULT_BRAND_KIT,
   type CaptionCue,
   type EditorSegment,
+  type GuideStep,
   type TitleCard,
 } from "@/lib/editor-types"
 import {
@@ -139,8 +144,9 @@ export function EditorScreen({
   const [captioning, setCaptioning] = useState(false)
   const [captionError, setCaptionError] = useState<string | null>(null)
   const [titleCards, setTitleCards] = useState<TitleCard[]>(initialState?.titleCards ?? [])
+  const [guideSteps, setGuideSteps] = useState<GuideStep[]>(initialState?.guideSteps ?? [])
   const [brandKit] = useState(initialState?.brandKit ?? DEFAULT_BRAND_KIT)
-  const [activeTool, setActiveTool] = useState<"captions" | "camera" | "thumbnail" | "export">("captions")
+  const [activeTool, setActiveTool] = useState<"captions" | "guide" | "camera" | "thumbnail" | "export">("captions")
 
   const [layout, setLayout] = useState<CameraLayout>(initialState?.camera.layout ?? initialLayout)
   const [cameraVisible, setCameraVisible] = useState(initialState?.camera.visible ?? hasCamera)
@@ -381,6 +387,39 @@ export function EditorScreen({
     () => titleCards.find((card) => currentTime >= card.start && currentTime <= card.end),
     [titleCards, currentTime],
   )
+
+  // Build guide is timed in project (edited-timeline) seconds, matching what the
+  // viewer scrubber shows. Steps stay sorted by start so ordering is stable.
+  const sortedGuideSteps = useMemo(
+    () => [...guideSteps].sort((a, b) => a.start - b.start),
+    [guideSteps],
+  )
+  const guideProjectTime = useMemo(() => sourceToProjectTime(currentTime), [sourceToProjectTime, currentTime])
+
+  const addGuideStep = useCallback(() => {
+    const start = Math.max(0, Math.round(sourceToProjectTime(currentTime)))
+    setGuideSteps((steps) =>
+      [...steps, { id: crypto.randomUUID(), start, title: "", body: "" }].sort((a, b) => a.start - b.start),
+    )
+  }, [currentTime, sourceToProjectTime])
+
+  const updateGuideStep = useCallback((id: string, patch: Partial<Omit<GuideStep, "id">>) => {
+    setGuideSteps((steps) => steps.map((step) => (step.id === id ? { ...step, ...patch } : step)))
+  }, [])
+
+  const setGuideStepToPlayhead = useCallback(
+    (id: string) => {
+      const start = Math.max(0, Math.round(sourceToProjectTime(currentTime)))
+      setGuideSteps((steps) =>
+        steps.map((step) => (step.id === id ? { ...step, start } : step)).sort((a, b) => a.start - b.start),
+      )
+    },
+    [currentTime, sourceToProjectTime],
+  )
+
+  const deleteGuideStep = useCallback((id: string) => {
+    setGuideSteps((steps) => steps.filter((step) => step.id !== id))
+  }, [])
   const activeSegment = useMemo(
     () => segments.find((segment) => currentTime >= segment.sourceStart && currentTime <= segment.sourceEnd),
     [currentTime, segments],
@@ -589,6 +628,7 @@ export function EditorScreen({
       camera: { visible: cameraVisible, layout },
       captions,
       titleCards,
+      guideSteps: sortedGuideSteps,
       brandKit,
       mimeTypes: {
         screen: recording.screen.mimeType,
@@ -596,7 +636,7 @@ export function EditorScreen({
         audio: recording.audio?.mimeType ?? null,
       },
     }
-  }, [segments, trim.start, trim.end, duration, cameraVisible, layout, captions, titleCards, brandKit, recording])
+  }, [segments, trim.start, trim.end, duration, cameraVisible, layout, captions, titleCards, sortedGuideSteps, brandKit, recording])
 
   // Save to library = upload the ORIGINAL recorded tracks + editor state. No
   // render, no re-encode: fast and lossless. The project stays fully editable.
@@ -706,6 +746,11 @@ export function EditorScreen({
                 </p>
               </div>
             )}
+            {activeTool === "guide" && sortedGuideSteps.length > 0 && (
+              <div className="absolute right-3 top-3 z-30 flex max-h-[calc(100%-1.5rem)] w-[min(20rem,55%)] flex-col">
+                <GuidePanel steps={sortedGuideSteps} currentTime={guideProjectTime} className="bg-card/95 shadow-lg backdrop-blur-sm" />
+              </div>
+            )}
             <div className="absolute inset-x-0 bottom-0 z-40 flex items-center gap-1 bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3 pb-3 pt-8 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               <button type="button" onClick={() => (playing ? pause() : play())} className="rounded-sm p-2 hover:bg-white/15" aria-label={playing ? "Pause" : "Play"}>{playing ? <Pause className="size-4" /> : <Play className="size-4" />}</button>
               <button type="button" onClick={() => skipBy(-10)} className="rounded-sm p-2 hover:bg-white/15" aria-label="Back 10 seconds"><RotateCcw className="size-4" /></button>
@@ -777,9 +822,10 @@ export function EditorScreen({
 
         {/* Controls */}
         <aside className="flex flex-col gap-4">
-          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-4" : "grid-cols-3")}>
+          <div className={cn("grid gap-1 rounded-md border border-border bg-card p-1", hasCamera ? "grid-cols-5" : "grid-cols-4")}>
             {([
               ["captions", Captions, "CC"],
+              ["guide", BookOpen, "Guide"],
               ...(hasCamera ? [["camera", Video, "Camera"]] as const : []),
               ["thumbnail", ImageIcon, "Thumbnail"],
               ["export", Download, "Export"],
@@ -818,6 +864,78 @@ export function EditorScreen({
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeTool === "guide" && (
+            <div className="rounded-md border border-border bg-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <BookOpen className="size-4 text-muted-foreground" />
+                  Build guide
+                </p>
+                <Button size="sm" variant="secondary" onClick={addGuideStep} className="gap-1.5">
+                  <Plus className="size-3.5" />
+                  Add step
+                </Button>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Scrub the demo, then add a step at the playhead. Paste each step&apos;s content from Notion as
+                Markdown — headers, bullets, callouts, and code blocks all render.
+              </p>
+
+              {sortedGuideSteps.length === 0 ? (
+                <div className="mt-3 rounded-sm border border-dashed border-border px-3 py-6 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    No steps yet. Move the playhead to where a step should appear and choose “Add step”.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-3 flex flex-col gap-3">
+                  {sortedGuideSteps.map((step, index) => (
+                    <div key={step.id} className="rounded-sm border border-border bg-background p-2.5">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span className="text-[10px] font-medium tabular-nums text-muted-foreground">
+                          Step {index + 1}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setGuideStepToPlayhead(step.id)}
+                          className="flex items-center gap-1 rounded-sm bg-secondary px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-foreground transition-colors hover:bg-accent"
+                          title="Set this step to start at the current playhead"
+                        >
+                          <Clock className="size-3" />
+                          {formatTransportTime(step.start)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteGuideStep(step.id)}
+                          aria-label={`Delete step ${index + 1}`}
+                          className="ml-auto rounded-sm p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={step.title}
+                        onChange={(event) => updateGuideStep(step.id, { title: event.target.value })}
+                        placeholder="Step title"
+                        aria-label={`Step ${index + 1} title`}
+                        className="mb-2 w-full rounded-sm border border-border bg-card px-2 py-1.5 text-xs font-medium outline-none focus:border-primary/50"
+                      />
+                      <textarea
+                        value={step.body}
+                        onChange={(event) => updateGuideStep(step.id, { body: event.target.value })}
+                        placeholder={"Paste Markdown from Notion…\n\n## Heading\n- A bullet\n> A callout\n\n```\ncode block\n```"}
+                        rows={5}
+                        aria-label={`Step ${index + 1} content`}
+                        className="w-full resize-y rounded-sm border border-border bg-card px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/50"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

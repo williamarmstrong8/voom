@@ -93,6 +93,16 @@ export function ensureVideosSchema(): Promise<void> {
   return globalForDb._videosMigrated
 }
 
+/** Fetch a single saved video by id, or null if it doesn't exist. */
+export async function getVideo(id: string): Promise<SavedVideo | null> {
+  await ensureVideosSchema()
+  const { rows } = await pool.query<VideoRow>(
+    `SELECT ${SELECT_COLUMNS} FROM videos WHERE id = $1`,
+    [id],
+  )
+  return rows.length ? rowToSavedVideo(rows[0]) : null
+}
+
 /** List saved videos, newest first. Shared by the API route and the RSC page. */
 export async function listVideos(): Promise<SavedVideo[]> {
   await ensureVideosSchema()
